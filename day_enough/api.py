@@ -1,0 +1,357 @@
+import hashlib
+import json
+import secrets
+import sqlite3
+import time
+from datetime import date, datetime
+from functools import wraps
+from uuid import uuid4
+from zoneinfo import ZoneInfo
+from flask import Blueprint, abort, current_app, jsonify, request, session
+from werkzeug.security import check_password_hash, generate_password_hash
+from .db import get_db, value, set_value
+from .planner import recommend, risks
+
+bp = Blueprint('api', __name__, url_prefix='/api')
+LEVELS = ('low', 'medium', 'high')
+
+
+def today():
+    override = current_app.config.get('TODAY')
+    return override if override else datetime.now(ZoneInfo('Asia/Shanghai')).date().isoformat()
+
+
+def now():
+    return datetime.now(ZoneInfo('Asia/Shanghai')).isoformat(timespec='seconds')
+
+
+def integer(val, name, low=0, high=600000):
+    if type(val) is not int or not low <= val <= high:
+        abort(400, f'{name}须为 {low}–{high} 之间的整数。')
+    return val
+
+
+def text_field(data, name, maximum, required=True):
+    val = data.get(name, '')
+    if not isinstance(val, str) or len(val.strip()) > maximum or (required and not val.strip()):
+        abort(400, f'{name} 内容无效（最多 {maximum} 字）。')
+    return val.strip()
+
+
+def date_field(val):
+    try:
+        if not isinstance(val, str) or date.fromisoformat(val).isoformat() != val:
+            raise ValueError()
+    except ValueError:
+        abort(400, '日期格式须为 YYYY-MM-DD。')
+    return val
+
+
+def payload():
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        abort(400, '请求须为 JSON 对象。')
+    return data
+
+
+def csrf():
+    token = session.get('csrf', '')
+    if not token or not secrets.compare_digest(token, request.headers.get('X-CSRF-Token', '')):
+        abort(403, '页面会话已变化，请刷新后重试。')
+
+
+def authenticated():
+    return session.get('authenticated') and session.get('auth_version') == value(get_db(), 'auth_version')
+
+
+def require_auth():
+    if not authenticated():
+        abort(401, '请先登录。')
+
+
+def snapshot(db):
+    day = today()
+    tasks = [dict(row) for row in db.execute('SELECT * FROM tasks ORDER BY created_at DESC,id')]
+    plan_row = db.execute('SELECT * FROM plans WHERE day=?', (day,)).fetchone()
+    plan = dict(plan_row) if plan_row else None
+    items = [dict(row) for row in db.execute('''SELECT i.*, t.title, t.due_date, t.energy,
+        t.remaining_minutes, t.next_step, t.status AS task_status
+        FROM items i JOIN tasks t ON t.id=i.task_id WHERE i.day=? ORDER BY i.position,i.id''', (day,))]
+    totals = db.execute("SELECT COALESCE(SUM(minutes),0), COALESCE(SUM(CASE WHEN energy='high' THEN minutes ELSE 0 END),0) FROM work_logs WHERE day=?", (day,)).fetchone()
+    default = int(value(db, 'default_minutes'))
+    allocations = {i['task_id']: min(i['remaining_minutes'], max(0, i['planned_minutes'] - i['done_minutes']))
+                   for i in items if i['status'] == 'pending' and i['task_status'] == 'active'}
+    warnings = risks(tasks, date.fromisoformat(day), default,
+                     plan['budget'] if plan else default, totals[0],
+                     plan['energy'] if plan else 'medium', totals[1], allocations) if tasks else []
+    if plan and totals[0] > plan['budget']:
+        warnings.insert(0, '今天记录的投入已超过时间预算，可以收工了。')
+    return {'day': day, 'revision': int(value(db, 'revision')), 'tasks': tasks,
+            'plan': plan, 'items': items, 'worked_minutes': totals[0],
+            'remaining_planned': sum(allocations.values()), 'warnings': warnings,
+            'settings': {'default_minutes': default, 'timezone': 'Asia/Shanghai'}}
+
+
+def mutation(fn):
+    @wraps(fn)
+    def wrapped(*args, **kwargs):
+        require_auth()
+        csrf()
+        data = payload()
+        db = get_db()
+        db.execute('BEGIN IMMEDIATE')
+        try:
+            # Recheck after acquiring lock, e.g. concurrent password changes.
+            require_auth()
+            if data.get('day') != today():
+                abort(409, '日期已变化，请刷新页面后再操作。')
+            integer(data.get('revision'), '数据版本', 0, 2**53)
+            token = request.headers.get('Idempotency-Key', '')
+            if not 16 <= len(token) <= 128:
+                abort(400, '缺少有效的操作标识。')
+            fingerprint = hashlib.sha256((request.path + json.dumps(data, sort_keys=True, ensure_ascii=False)).encode()).hexdigest()
+            receipt = db.execute('SELECT fingerprint FROM receipts WHERE id=?', (token,)).fetchone()
+            if receipt:
+                if receipt['fingerprint'] != fingerprint:
+                    abort(409, '操作标识已使用，请刷新页面。')
+            else:
+                if data['revision'] != int(value(db, 'revision')):
+                    abort(409, '其他页面已更新数据。请刷新，核对最新内容后再提交。')
+                fn(db, data, *args, **kwargs)
+                set_value(db, 'revision', data['revision'] + 1)
+                db.execute('INSERT INTO receipts VALUES (?,?)', (token, fingerprint))
+            result = snapshot(db)
+            db.commit()
+            return jsonify(result)
+        except Exception:
+            db.rollback()
+            raise
+    return wrapped
+
+
+@bp.get('/session')
+def get_session():
+    if 'csrf' not in session:
+        session['csrf'] = secrets.token_hex(32)
+    return jsonify(authenticated=bool(authenticated()), configured=bool(value(get_db(), 'password_hash')), csrf=session['csrf'])
+
+
+@bp.post('/login')
+def login():
+    csrf()
+    data = payload()
+    password = data.get('password')
+    if not isinstance(password, str) or len(password) > 256:
+        abort(400, '密码无效。')
+    db = get_db()
+    stored = value(db, 'password_hash')
+    if not stored:
+        abort(503, '请先在服务器终端设置个人密码，参见 README。')
+    stamp = time.time()
+    ip = request.remote_addr or 'unknown'
+    db.execute('BEGIN IMMEDIATE')
+    try:
+        db.execute('DELETE FROM login_attempts WHERE at<?', (stamp - 300,))
+        count = db.execute('SELECT COUNT(*) FROM login_attempts WHERE ip=?', (ip,)).fetchone()[0]
+        if count >= 10:
+            abort(429, '尝试次数较多，请 5 分钟后重试。')
+        db.execute('INSERT INTO login_attempts VALUES (?,?)', (ip, stamp))
+        stored = value(db, 'password_hash')
+        login_version = value(db, 'auth_version')
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    if not check_password_hash(stored, password):
+        abort(401, '密码不正确。')
+    session.clear()
+    session.permanent = True
+    session.update(authenticated=True, auth_version=login_version, csrf=secrets.token_hex(32))
+    return jsonify(csrf=session['csrf'])
+
+
+@bp.post('/logout')
+def logout():
+    csrf()
+    session.clear()
+    return jsonify(ok=True)
+
+
+@bp.get('/state')
+def state():
+    require_auth()
+    db = get_db()
+    db.execute('BEGIN')
+    try:
+        result = snapshot(db)
+        db.commit()
+        return jsonify(result)
+    except Exception:
+        db.rollback()
+        raise
+
+
+def task_fields(data):
+    title = text_field(data, 'title', 120)
+    step = text_field(data, 'next_step', 500, False)
+    due = date_field(data.get('due_date'))
+    if data.get('energy') not in LEVELS or data.get('consequence') not in LEVELS:
+        abort(400, '请选择有效的精力等级和后果严重度。')
+    remaining = integer(data.get('remaining_minutes'), '剩余分钟', 0)
+    return title, due, data['consequence'], data['energy'], remaining, step
+
+
+def task_by_id(db, task_id):
+    task = db.execute('SELECT * FROM tasks WHERE id=?', (task_id,)).fetchone()
+    if not task:
+        abort(404, '任务不存在。')
+    return task
+
+
+def settle_items(db, task_id):
+    db.execute("UPDATE items SET status='done' WHERE task_id=? AND day=? AND status='pending'", (task_id, today()))
+
+
+@bp.post('/tasks')
+@mutation
+def add_task(db, data):
+    fields = task_fields(data)
+    if fields[4] <= 0:
+        abort(400, '新任务的预计用时须大于 0。')
+    db.execute('''INSERT INTO tasks(id,title,due_date,consequence,energy,remaining_minutes,next_step,created_at,updated_at)
+                  VALUES (?,?,?,?,?,?,?,?,?)''', (str(uuid4()), *fields, now(), now()))
+
+
+@bp.post('/tasks/<task_id>')
+@mutation
+def edit_task(db, data, task_id):
+    task = task_by_id(db, task_id)
+    if data.get('version') != task['version']:
+        abort(409, '任务已有新版本，请刷新。')
+    fields = task_fields(data)
+    status = data.get('status', task['status'])
+    if status not in ('active', 'done', 'archived'):
+        abort(400, '任务状态无效。')
+    if fields[4] == 0 and status == 'active':
+        status = 'done'
+    if status == 'done':
+        fields = (*fields[:4], 0, fields[5])
+    db.execute('''UPDATE tasks SET title=?,due_date=?,consequence=?,energy=?,remaining_minutes=?,next_step=?,
+                  status=?,version=version+1,updated_at=? WHERE id=?''', (*fields, status, now(), task_id))
+    if status != 'active':
+        settle_items(db, task_id)
+
+
+@bp.post('/tasks/<task_id>/work')
+@mutation
+def work(db, data, task_id):
+    task = task_by_id(db, task_id)
+    if task['status'] != 'active':
+        abort(400, '只能为进行中的任务记录投入。')
+    minutes = integer(data.get('minutes'), '投入分钟', 1, 960)
+    db.execute('INSERT INTO work_logs VALUES (?,?,?,?,?,?)', (str(uuid4()), task_id, today(), minutes, task['energy'], now()))
+    remaining = max(0, task['remaining_minutes'] - minutes)
+    db.execute('''UPDATE tasks SET remaining_minutes=?,worked_minutes=worked_minutes+?,status=?,
+                  version=version+1,updated_at=? WHERE id=?''',
+               (remaining, minutes, 'active' if remaining else 'done', now(), task_id))
+    db.execute('''UPDATE items SET done_minutes=done_minutes+?,
+                  status=CASE WHEN done_minutes+?>=planned_minutes OR ?=0 THEN 'done' ELSE status END
+                  WHERE task_id=? AND day=?''', (minutes, minutes, remaining, task_id, today()))
+
+
+@bp.post('/plan')
+@mutation
+def make_plan(db, data):
+    budget = integer(data.get('budget'), '今日可用分钟', 0, 960)
+    energy = data.get('energy')
+    if energy not in LEVELS:
+        abort(400, '请选择今日状态。')
+    day = today()
+    db.execute('''INSERT INTO plans VALUES (?,?,?,?) ON CONFLICT(day)
+                  DO UPDATE SET budget=excluded.budget,energy=excluded.energy''', (day, budget, energy, now()))
+    previous = [dict(row) for row in db.execute('SELECT * FROM items WHERE day=?', (day,))]
+    excluded = {i['task_id'] for i in previous if i['status'] in ('done', 'skipped')}
+    # Keep already completed and skipped rows, plus progress on partial rows.
+    db.execute("DELETE FROM items WHERE day=? AND status='pending' AND done_minutes=0", (day,))
+    db.execute("UPDATE items SET planned_minutes=done_minutes,status='done' WHERE day=? AND status='pending'", (day,))
+    tasks = [dict(row) for row in db.execute('SELECT * FROM tasks')]
+    totals = db.execute("SELECT COALESCE(SUM(minutes),0),COALESCE(SUM(CASE WHEN energy='high' THEN minutes ELSE 0 END),0) FROM work_logs WHERE day=?", (day,)).fetchone()
+    picks = recommend(tasks, date.fromisoformat(day), budget, energy, totals[0], totals[1], excluded)
+    for position, pick in enumerate(picks):
+        existing = db.execute('SELECT * FROM items WHERE day=? AND task_id=?', (day, pick['task_id'])).fetchone()
+        if existing:
+            db.execute("UPDATE items SET planned_minutes=done_minutes+?,status='pending',reason=?,position=? WHERE id=?",
+                       (pick['planned_minutes'], pick['reason'], position, existing['id']))
+        else:
+            db.execute('INSERT INTO items(id,day,task_id,planned_minutes,reason,position) VALUES (?,?,?,?,?,?)',
+                       (str(uuid4()), day, pick['task_id'], pick['planned_minutes'], pick['reason'], position))
+
+
+@bp.post('/items/<item_id>/skip')
+@mutation
+def skip(db, data, item_id):
+    item = db.execute('SELECT * FROM items WHERE id=? AND day=?', (item_id, today())).fetchone()
+    if not item or item['status'] != 'pending':
+        abort(400, '这项安排已经处理，请刷新。')
+    db.execute("UPDATE items SET status='skipped' WHERE id=?", (item_id,))
+
+
+@bp.post('/plan/order')
+@mutation
+def order(db, data):
+    ids = data.get('ids')
+    actual = [r[0] for r in db.execute('SELECT id FROM items WHERE day=?', (today(),))]
+    if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids) or len(ids) != len(actual) or set(ids) != set(actual):
+        abort(400, '排序列表无效。')
+    for pos, item_id in enumerate(ids):
+        db.execute('UPDATE items SET position=? WHERE id=?', (pos, item_id))
+
+
+@bp.post('/settings')
+@mutation
+def settings(db, data):
+    minutes = integer(data.get('default_minutes'), '默认可用分钟', 0, 960)
+    set_value(db, 'default_minutes', minutes)
+
+
+@bp.post('/password')
+@mutation
+def password(db, data):
+    old, new = data.get('old_password'), data.get('new_password')
+    if not isinstance(old, str) or len(old) > 256 or not check_password_hash(value(db, 'password_hash'), old):
+        abort(400, '当前密码不正确。')
+    if not isinstance(new, str) or not 12 <= len(new) <= 256:
+        abort(400, '新密码须为 12–256 个字符。')
+    set_value(db, 'password_hash', generate_password_hash(new))
+    version = str(int(value(db, 'auth_version')) + 1)
+    set_value(db, 'auth_version', version)
+    session['auth_version'] = version
+
+
+@bp.get('/export')
+def export():
+    require_auth()
+    from .backup import export_data
+    db = get_db()
+    db.execute('BEGIN')
+    try:
+        data = export_data(db)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    response = jsonify(data)
+    response.headers['Content-Disposition'] = f'attachment; filename="day-enough-{today()}.json"'
+    return response
+
+
+@bp.post('/restore')
+@mutation
+def restore(db, data):
+    if data.get('confirmation') != '恢复':
+        abort(400, '请输入「恢复」以确认替换现有任务数据。')
+    from .backup import restore_data
+    try:
+        restore_data(db, data.get('backup'))
+    except (ValueError, sqlite3.Error, TypeError, KeyError) as exc:
+        abort(400, f'备份格式无效，未修改现有数据：{exc}')

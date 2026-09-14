@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily DayEnough backup schedule
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+Persistent=true
+RandomizedDelaySec=300
+Unit=day-enough-backup.service
+
+[Install]
+WantedBy=timers.target
