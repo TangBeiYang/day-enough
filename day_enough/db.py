@@ -35,7 +35,10 @@ def init_db(db):
             if column not in columns:
                 db.execute(f'ALTER TABLE tasks ADD COLUMN {column} {definition}')
         db.execute('CREATE UNIQUE INDEX IF NOT EXISTS recurrence_occurrence ON tasks(recurrence_id,occurrence_date)')
-        db.execute('PRAGMA user_version=2')
+        rule_columns = {row[1] for row in db.execute('PRAGMA table_info(recurrences)')}
+        if 'due_day' not in rule_columns:
+            db.execute('ALTER TABLE recurrences ADD COLUMN due_day INTEGER NOT NULL DEFAULT -1 CHECK(due_day BETWEEN -1 AND 31)')
+        db.execute('PRAGMA user_version=3')
         db.commit()
     except Exception:
         db.rollback()

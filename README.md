@@ -54,9 +54,9 @@ Regenerating a plan accounts for time already recorded and preserves completed o
 
 A planned date means “start recommending this task on this day.” A deadline means “finish by this day.” Ordinary tasks can leave either date blank; a planned date cannot be later than a filled deadline.
 
-Choose **Recurring task** when adding a task, then select daily, selected weekdays, or a monthly date (including month-end). The planned date is the recurrence start date. Dates such as the 31st fall on the last day of shorter months. Estimated minutes apply to each occurrence. Optionally make its planned day its deadline.
+Choose **Recurring task** to open its dedicated form: frequency, planned weekdays or monthly date, optional deadline, start date, and minutes per occurrence. Weekly deadlines use weekdays; monthly deadlines use dates or month-end. Each occurrence uses the nearest matching deadline on or after its planned day, rolling into the next week/month when necessary. Dates such as the 31st fall on the last day of shorter months. A live summary explains the rule; energy, consequences, next steps, and the daily same-day deadline option are under **More settings**.
 
-Occurrences are created when you open or refresh the app or perform an action; no background scheduler is required. Each has its own progress. By default, unfinished occurrences are marked missed after their planned day, retaining work already recorded without adding debt to the next occurrence. Choose **Keep pending** to keep unfinished occurrences available instead.
+Occurrences are created when you open or refresh the app or perform an action; no background scheduler is required. Each has its own progress. By default, unfinished occurrences are marked missed after their deadline (or planned day if no deadline is set), retaining work already recorded without adding debt to the next occurrence. Choose **Keep pending** to keep unfinished occurrences available instead.
 
 Manage rules and occurrence history in **My tasks → Recurring tasks**. Editing a rule affects future, uncreated occurrences; edit an existing occurrence separately. Pausing stops new occurrences but keeps existing ones. Resuming does not backfill the paused period. Recurring tasks still respect time and energy limits, and existing daily plans change only when explicitly regenerated.
 
@@ -74,7 +74,7 @@ By default, the `instance/` directory contains the SQLite database and session-s
 
 The backup command uses SQLite's backup API, refuses to overwrite an existing file, and verifies database integrity. Do not copy a live SQLite main file directly because unmerged data may still be in its WAL. A full SQLite backup includes the password hash and should be protected like the task data.
 
-On startup, existing databases are automatically upgraded by adding the new fields and recurrence table. Back up before upgrading and restart the app after updating the code. JSON exports use version 2; version 1 backups can still be restored, with blank planned dates and no recurrence rules. Older app versions cannot read version 2 backups.
+On startup, existing databases are automatically upgraded by adding the new fields and recurrence table. Back up before upgrading and restart the app after updating the code. JSON exports use version 3; version 1 and 2 backups can still be restored. Existing recurrence rules retain their previous deadline behavior. Older app versions cannot read version 3 backups.
 
 ## Verification
 

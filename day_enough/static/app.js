@@ -69,8 +69,10 @@ function scheduleTags(task) {
 }
 function frequencyLabel(rule) {
   if (rule.frequency === 'daily') return '每天';
-  if (rule.frequency === 'weekly') return rule.weekdays.map(d => ['周一','周二','周三','周四','周五','周六','周日'][d]).join('、');
-  return rule.month_day ? `每月 ${rule.month_day} 日` : '每月月末';
+  const weekdays = ['周一','周二','周三','周四','周五','周六','周日'];
+  const planned = rule.frequency === 'weekly' ? rule.weekdays.map(d => weekdays[d]).join('、') : rule.month_day ? `每月 ${rule.month_day} 日` : '每月月末';
+  const due = rule.due_day >= 0 ? (rule.frequency === 'weekly' ? weekdays[rule.due_day] : rule.due_day === 0 ? '月末' : `${rule.due_day} 日`) : '';
+  return planned + (due ? `计划 · ${due}截止` : '');
 }
 function openDialog(id, base = context()) {
   const dialog = $(id); const form = $('form', dialog);
@@ -160,8 +162,21 @@ function render() {
 function updateTaskKind() {
   const kind = $('#task-kind').value;
   const recurring = kind === 'recurring';
+  const form = $('#task-form');
+  if (form.dataset.kind !== kind) $('#task-more').open = !recurring;
+  form.dataset.kind = kind;
+  const editing = !!form.elements.task_id.value;
+  $('#task-dialog-title').textContent = recurring ? (editing ? '编辑重复规则' : '添加周期任务') : kind === 'occurrence' ? '编辑本次任务' : editing ? '调整这件事' : '添加普通任务';
+  $('#task-save').textContent = recurring ? (editing ? '保存重复规则' : '创建周期任务') : '保存任务';
+  $('#task-title').placeholder = recurring ? '例如：背单词、整理笔记、每月总结' : '例如：完成课程报告';
+  $$('[data-task-kind]').forEach(button => {
+    button.setAttribute('aria-pressed', String(button.dataset.taskKind === kind));
+    button.disabled = editing;
+    button.hidden = button.dataset.taskKind === 'occurrence' ? kind !== 'occurrence' : kind === 'occurrence';
+  });
   $('#recurrence-fields').hidden = !recurring;
   $('#recurrence-fields').disabled = !recurring;
+  $('#rule-policy-field').hidden = !recurring;
   $('#task-due-field').hidden = recurring;
   $('#task-due').disabled = recurring;
   $('#task-planned').required = recurring || kind === 'occurrence';
@@ -171,9 +186,32 @@ function updateTaskKind() {
   if (recurring && !$('#task-planned').value) $('#task-planned').value = state.day;
   $('#rule-weekdays').hidden = $('#rule-frequency').value !== 'weekly';
   $('#rule-month').hidden = $('#rule-frequency').value !== 'monthly';
+  const frequency = $('#rule-frequency').value;
+  const deadline = $('#rule-deadline');
+  if (deadline.dataset.frequency !== frequency) {
+    const options = frequency === 'weekly' ? ['周一','周二','周三','周四','周五','周六','周日'].map((label,value)=>[value,label]) : [[0,'月末'],...Array.from({length:31},(_,i)=>[i+1,`${i+1} 日`])];
+    deadline.innerHTML = '<option value="-1">不设截止</option><option value="same">每次计划当天</option>' + options.map(([value,label])=>`<option value="${value}">${label}</option>`).join('');
+    deadline.dataset.frequency = frequency;
+  }
+  $('#rule-deadline-field').hidden = !recurring || frequency === 'daily';
+  $('#rule-deadline-label').textContent = frequency === 'weekly' ? '截止星期（可选）' : '每月截止日期（可选）';
+  $('#rule-due-field').hidden = !recurring || frequency !== 'daily';
+  updateRuleSummary();
+}
+function updateRuleSummary() {
+  if ($('#task-kind').value !== 'recurring') return;
+  const frequency = $('#rule-frequency').value;
+  const weekdays = $$('[name="weekdays"]:checked').map(input=>['周一','周二','周三','周四','周五','周六','周日'][Number(input.value)]);
+  const schedule = frequency === 'daily' ? '每天' : frequency === 'weekly' ? `每周 ${weekdays.join('、') || '（请选择计划星期）'}` : `每月 ${$('#rule-month-day').selectedOptions[0].textContent}`;
+  const due = frequency === 'daily' ? ($('#rule-due').checked ? '当天截止' : '不设截止') : $('#rule-deadline').selectedOptions[0].textContent;
+  const wrap = frequency === 'weekly' && Number($('#rule-deadline').value) >= 0 && $$('[name="weekdays"]:checked').some(input=>Number(input.value)>Number($('#rule-deadline').value));
+  const monthlyWrap = frequency === 'monthly' && Number($('#rule-deadline').value)>0 && ($('#rule-month-day').value==='0' || Number($('#rule-deadline').value)<Number($('#rule-month-day').value));
+  $('#rule-summary').textContent = `从 ${$('#task-planned').value || '所选开始日期'} 起，${schedule}计划，每次 ${$('#task-remaining').value || '—'} 分钟；截止：${due}${wrap?'（早于计划星期的顺延到下一周）':monthlyWrap?'（取计划日当天或之后最近的日期，必要时顺延到下个月）':''}；${$('#rule-missed').value==='skip'?'到期未完成不补做':'未完成保留待办'}。`;
 }
 function taskDialog(task, rule = null, newRule = false) {
   const form = $('#task-form'); form.reset();
+  delete form.dataset.kind;
+  delete $('#rule-deadline').dataset.frequency;
   const editing = rule || task;
   $('#task-dialog-title').textContent = rule ? '调整重复规则' : task?.recurrence_id ? '调整本次任务' : task ? '调整这件事' : '添加一件要做的事';
   form.elements.task_id.value = editing?.id || '';
@@ -195,6 +233,8 @@ function taskDialog(task, rule = null, newRule = false) {
   $$('[name="weekdays"]', form).forEach(input=>input.checked = (rule?.weekdays || []).includes(Number(input.value)));
   $('#rule-edit-help').textContent = rule ? '修改仅影响尚未生成的任务，已有份额与进度保持原样。' : '每次生成独立任务，完成一次不会结束整个周期。';
   updateTaskKind();
+  $('#rule-deadline').value = rule?.due_on_planned ? 'same' : String(rule?.due_day ?? -1);
+  updateRuleSummary();
   openDialog('#task-dialog', {...context(), version:editing?.version, status:task?.status});
 }
 function workDialog(task) {
@@ -223,6 +263,12 @@ async function logout() { await api('/logout',{}); await boot(); }
 $('#logout-button').addEventListener('click',()=>run(logout));
 window.addEventListener('hashchange',()=>{if(state)render();});
 document.addEventListener('click',event=>{
+  const kindButton = event.target.closest('[data-task-kind]');
+  if (kindButton && !kindButton.disabled) {
+    $('#task-kind').value = kindButton.dataset.taskKind;
+    updateTaskKind();
+    return;
+  }
   const close=event.target.closest('[data-close]'); if(close && !busy) {close.closest('dialog').close(); return;}
   const button=event.target.closest('[data-action]'); if(!button || busy) return;
   const {action,id,value}=button.dataset;
@@ -263,10 +309,12 @@ document.addEventListener('click',event=>{
   }
 });
 document.addEventListener('input',event=>{
+  if(event.target.closest('#task-form')) updateRuleSummary();
   if(event.target.id==='task-search') {search=event.target.value;$('#library-results').innerHTML=libraryCards();}
 });
 document.addEventListener('change',event=>{
   if(event.target.id==='task-kind'||event.target.id==='rule-frequency') {updateTaskKind();return;}
+  if(event.target.closest('#task-form')) updateRuleSummary();
   if(event.target.id!=='backup-file'||!event.target.files[0]) return;
   const file=event.target.files[0];
   run(async()=>{
@@ -289,7 +337,8 @@ document.addEventListener('submit',event=>{
     if (recurring) {
       body.weekdays = new FormData(form).getAll('weekdays').map(Number);
       body.month_day = Number(values.month_day);
-      body.due_on_planned = form.elements.due_on_planned.checked;
+      body.due_on_planned = values.frequency === 'daily' ? form.elements.due_on_planned.checked : values.due_day === 'same';
+      body.due_day = values.frequency === 'daily' || body.due_on_planned ? -1 : Number(values.due_day);
     } else if(values.task_id) body.status=body.remaining_minutes>0&&base.status==='done'?'active':base.status;
     const collection = recurring ? '/recurrences' : '/tasks';
     await mutate(values.task_id?`${collection}/${values.task_id}`:collection,body,{revision:base.revision,day:base.day});

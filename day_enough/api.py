@@ -297,11 +297,14 @@ def recurrence_fields(data, previous=None):
     due = data.get('due_on_planned', False)
     if type(due) not in (bool, int) or due not in (0, 1):
         abort(400, '截止设置无效。')
+    due_day = integer(data.get('due_day', -1), '周期截止日期', -1, 31)
+    if (frequency == 'daily' and due_day != -1) or (frequency == 'weekly' and due_day > 6) or (due and due_day != -1):
+        abort(400, '截止日期与重复频率不匹配。')
     weekdays = sorted(set(weekdays)) if frequency == 'weekly' else []
     month_day = month_day if frequency == 'monthly' else 0
     next_day = next_occurrence(frequency, weekdays, month_day, start, today())
     return (fields[0], fields[2], fields[3], fields[4], fields[5], frequency,
-            json.dumps(weekdays), month_day, start, next_day, int(due), policy)
+            json.dumps(weekdays), month_day, start, next_day, int(due), policy, due_day)
 
 
 @bp.post('/recurrences')
@@ -310,8 +313,8 @@ def add_recurrence(db, data):
     fields = recurrence_fields(data)
     db.execute('''INSERT INTO recurrences
         (id,title,consequence,energy,minutes,next_step,frequency,weekdays,month_day,
-         start_date,next_date,due_on_planned,missed_policy,created_at,updated_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''', (str(uuid4()), *fields, now(), now()))
+         start_date,next_date,due_on_planned,missed_policy,due_day,created_at,updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''', (str(uuid4()), *fields, now(), now()))
 
 
 def recurrence_by_id(db, rule_id, data):
@@ -329,7 +332,7 @@ def edit_recurrence(db, data, rule_id):
     rule = recurrence_by_id(db, rule_id, data)
     fields = recurrence_fields(data, rule)
     db.execute('''UPDATE recurrences SET title=?,consequence=?,energy=?,minutes=?,next_step=?,
-        frequency=?,weekdays=?,month_day=?,start_date=?,next_date=?,due_on_planned=?,missed_policy=?,
+        frequency=?,weekdays=?,month_day=?,start_date=?,next_date=?,due_on_planned=?,missed_policy=?,due_day=?,
         version=version+1,updated_at=? WHERE id=?''', (*fields, now(), rule_id))
 
 

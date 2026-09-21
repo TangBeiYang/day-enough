@@ -11,13 +11,13 @@ TABLES = ('recurrences', 'tasks', 'plans', 'items', 'work_logs')
 
 
 def export_data(db):
-    return {'format': 'day-enough', 'version': 2,
+    return {'format': 'day-enough', 'version': 3,
             'default_minutes': int(db.execute("SELECT value FROM meta WHERE key='default_minutes'").fetchone()[0]),
             'tables': {name: [dict(row) for row in db.execute(f'SELECT * FROM {name}')] for name in TABLES}}
 
 
 def restore_data(db, data):
-    if not isinstance(data, dict) or data.get('format') != 'day-enough' or type(data.get('version')) is not int or data['version'] not in (1, 2):
+    if not isinstance(data, dict) or data.get('format') != 'day-enough' or type(data.get('version')) is not int or data['version'] not in (1, 2, 3):
         raise ValueError('不支持的备份版本')
     default = data.get('default_minutes')
     if type(default) is not int or not 0 <= default <= 960:
@@ -33,6 +33,13 @@ def restore_data(db, data):
             task.update(planned_date='', recurrence_id=None, occurrence_date='', missed_policy='carry', missed=0)
     if not isinstance(tables, dict) or set(tables) != set(TABLES):
         raise ValueError('缺少数据表')
+    if data['version'] < 3:
+        if not isinstance(tables['recurrences'], list):
+            raise ValueError('周期规则无效')
+        for rule in tables['recurrences']:
+            if not isinstance(rule, dict) or 'due_day' in rule:
+                raise ValueError('旧版周期规则字段无效')
+            rule['due_day'] = -1
     # Validate in a scratch database, including schema and foreign keys, before touching live data.
     scratch = sqlite3.connect(':memory:', isolation_level=None)
     try:
@@ -52,7 +59,7 @@ def restore_data(db, data):
                     if col == 'recurrence_id' and val is None:
                         continue
                     if col in numeric:
-                        if type(val) is not int or not 0 <= val <= 2**53:
+                        if type(val) is not int or not (-1 if col == 'due_day' else 0) <= val <= 2**53:
                             raise ValueError('数值无效')
                     elif not isinstance(val, str) or len(val) > 2000:
                         raise ValueError('文本字段无效')
@@ -77,6 +84,11 @@ def restore_data(db, data):
                     if row['missed'] and row['status'] != 'archived':
                         raise ValueError('漏做记录状态无效')
                 if name == 'recurrences':
+                    if (not -1 <= row['due_day'] <= 31
+                            or (row['frequency'] == 'daily' and row['due_day'] != -1)
+                            or (row['frequency'] == 'weekly' and row['due_day'] > 6)
+                            or (row['due_on_planned'] and row['due_day'] != -1)):
+                        raise ValueError('周期截止日期无效')
                     weekdays = json.loads(row['weekdays'])
                     if (not isinstance(weekdays, list) or len(weekdays) > 7
                             or any(type(d) is not int or not 0 <= d <= 6 for d in weekdays)

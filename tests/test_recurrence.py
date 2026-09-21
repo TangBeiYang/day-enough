@@ -6,7 +6,7 @@ from uuid import uuid4
 
 import pytest
 from day_enough.db import connect, init_db
-from day_enough.recurrence import next_occurrence
+from day_enough.recurrence import next_occurrence, occurrence_deadline
 from conftest import Browser
 
 
@@ -37,6 +37,91 @@ def add_rule(browser, **overrides):
 ])
 def test_calendar(frequency, weekdays, month_day, start, after, expected):
     assert next_occurrence(frequency, weekdays, month_day, start, after) == expected
+
+
+@pytest.mark.parametrize('frequency,planned,due_day,expected', [
+    ('weekly', '2026-09-14', 4, '2026-09-18'),
+    ('weekly', '2026-09-18', 0, '2026-09-21'),
+    ('weekly', '2026-09-14', 0, '2026-09-14'),
+    ('monthly', '2026-09-05', 20, '2026-09-20'),
+    ('monthly', '2026-09-20', 5, '2026-10-05'),
+    ('monthly', '2026-12-31', 5, '2027-01-05'),
+    ('monthly', '2028-02-20', 31, '2028-02-29'),
+    ('monthly', '2026-02-28', 30, '2026-02-28'),
+    ('monthly', '2026-02-10', 0, '2026-02-28'),
+])
+def test_occurrence_deadlines(frequency, planned, due_day, expected):
+    assert occurrence_deadline({'frequency': frequency, 'due_day': due_day, 'due_on_planned': 0}, planned) == expected
+
+
+def test_weekly_window_survives_until_deadline_and_keeps_progress(browser, app):
+    rule = add_rule(browser, frequency='weekly', weekdays=[0], due_day=4)
+    task = browser.state()['tasks'][0]
+    assert task['due_date'] == '2026-09-18'
+    browser.post('/tasks/' + task['id'] + '/work', {'minutes': 5})
+    app.config['TODAY'] = '2026-09-18'
+    assert browser.state()['tasks'][0]['status'] == 'active'
+    app.config['TODAY'] = '2026-09-19'
+    missed = browser.state()['tasks'][0]
+    assert missed['missed'] == 1 and missed['worked_minutes'] == 5
+    response = browser.post('/recurrences/' + rule['id'], rule_payload(
+        version=rule['version'], frequency='weekly', weekdays=[0], due_day=6))
+    assert response.status_code == 200
+    assert response.json['tasks'][0]['due_date'] == '2026-09-18'
+    app.config['TODAY'] = '2026-09-21'
+    assert next(t for t in browser.state()['tasks'] if t['status'] == 'active')['due_date'] == '2026-09-27'
+
+
+def test_monthly_window_materialized_late_is_not_prematurely_missed(browser, app):
+    add_rule(browser, frequency='monthly', month_day=14, due_day=20)
+    app.config['TODAY'] = '2026-10-17'
+    tasks = browser.state()['tasks']
+    current = next(t for t in tasks if t['occurrence_date'] == '2026-10-14')
+    assert current['status'] == 'active' and current['due_date'] == '2026-10-20'
+
+
+@pytest.mark.parametrize('fields', [
+    {'due_day': 2}, {'frequency': 'weekly', 'weekdays': [0], 'due_day': 7},
+    {'frequency': 'monthly', 'due_day': 32}, {'due_day': -2},
+    {'frequency': 'monthly', 'due_day': 3, 'due_on_planned': True},
+])
+def test_invalid_deadline_rules_are_rejected(browser, fields):
+    assert browser.post('/recurrences', rule_payload(**fields)).status_code == 400
+    assert browser.state()['recurrences'] == []
+
+
+def test_v2_backup_and_database_upgrade(browser, tmp_path):
+    add_rule(browser, due_on_planned=True)
+    backup = browser.client.get('/api/export').json
+    backup['version'] = 2
+    for rule in backup['tables']['recurrences']:
+        del rule['due_day']
+    response = browser.post('/restore', {'backup': backup, 'confirmation': '恢复'})
+    assert response.status_code == 200
+    assert response.json['recurrences'][0]['due_day'] == -1
+    assert response.json['tasks'][0]['due_date'] == '2026-09-14'
+    db = connect(str(tmp_path / 'v2.sqlite'))
+    try:
+        schema = Path(__file__).parents[1].joinpath('day_enough/schema.sql').read_text()
+        db.executescript('\n'.join(line for line in schema.splitlines() if not line.startswith(' due_day ')))
+        db.execute("INSERT INTO recurrences(id,title,consequence,energy,minutes,frequency,start_date,next_date,created_at,updated_at) VALUES ('old','原规则','medium','medium',20,'daily','2026-09-14','2026-09-15','stamp','stamp')")
+        init_db(db)
+        init_db(db)
+        row = db.execute('SELECT * FROM recurrences').fetchone()
+        assert row['id'] == 'old' and row['due_day'] == -1
+    finally:
+        db.close()
+
+
+def test_v3_deadline_backup_roundtrip_and_invalid_restore(browser):
+    add_rule(browser, frequency='weekly', weekdays=[0], due_day=4)
+    backup = browser.client.get('/api/export').json
+    assert browser.post('/restore', {'backup': backup, 'confirmation': '恢复'}).status_code == 200
+    assert browser.client.get('/api/export').json == backup
+    bad = copy.deepcopy(backup)
+    bad['tables']['recurrences'][0]['due_day'] = 31
+    assert browser.post('/restore', {'backup': bad, 'confirmation': '恢复'}).status_code == 400
+    assert browser.client.get('/api/export').json == backup
 
 
 def test_ordinary_planned_date_gates_recommendation_and_can_be_cleared(browser, app):
@@ -188,7 +273,7 @@ def test_backup_v2_roundtrip_and_invalid_rules(browser):
     task = browser.state()['tasks'][0]
     browser.post('/tasks/' + task['id'] + '/work', {'minutes': 5})
     backup = browser.client.get('/api/export').json
-    assert backup['version'] == 2
+    assert backup['version'] == 3
     response = browser.post('/restore', {'backup': backup, 'confirmation': '恢复'})
     assert response.status_code == 200, response.json
     assert browser.client.get('/api/export').json == backup
@@ -235,6 +320,6 @@ def test_existing_database_migration_preserves_references_and_is_repeatable(tmp_
         assert db.execute('SELECT minutes FROM work_logs').fetchone()[0] == 10
         assert db.execute("SELECT value FROM meta WHERE key='revision'").fetchone()[0] == '17'
         assert list(db.execute('PRAGMA foreign_key_check')) == []
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 2
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 3
     finally:
         db.close()
