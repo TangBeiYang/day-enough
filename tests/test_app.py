@@ -47,6 +47,23 @@ def test_task_validation_and_completion(browser):
     assert response.json['tasks'][0]['status'] == 'active'
 
 
+def test_task_without_deadline_is_planned_without_deadline_warning(browser):
+    undated = browser.add(title='长期阅读', due_date='', remaining_minutes=90)
+    dated = browser.add(title='明天交的作业', due_date='2026-09-15', remaining_minutes=30)
+    result = browser.post('/plan', {'budget': 90, 'energy': 'high'}).json
+    assert [item['task_id'] for item in result['items']] == [dated['id'], undated['id']]
+    undated_item = next(item for item in result['items'] if item['task_id'] == undated['id'])
+    assert undated_item['planned_minutes'] == 30
+    assert '无截止日期' in undated_item['reason']
+    assert all('长期阅读' not in warning for warning in result['warnings'])
+
+    exported = browser.client.get('/api/export').json
+    assert next(task for task in exported['tables']['tasks'] if task['id'] == undated['id'])['due_date'] == ''
+    restored = browser.post('/restore', {'backup': exported, 'confirmation': '恢复'})
+    assert restored.status_code == 200
+    assert next(task for task in restored.json['tasks'] if task['id'] == undated['id'])['due_date'] == ''
+
+
 def test_plan_is_persistent_no_automatic_refill(browser, app):
     task = browser.add(remaining_minutes=180)
     plan = browser.post('/plan', {'budget':120, 'energy':'medium'}).json

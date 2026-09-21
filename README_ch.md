@@ -1,0 +1,93 @@
+# DayEnough
+
+[English README](README.md)
+
+一个个人任务规划工具，根据截止日期、可用时间和精力，帮你决定今天做什么，以及做到多少就够了。
+
+DayEnough 是一个电脑优先的个人 Web 应用。数据统一保存在服务端，因此可以在不同电脑和操作系统中访问同一份任务与进度。
+
+## 当前功能
+
+- 个人密码登录，无注册和第三方账号。
+- 任务录入、编辑、完成、归档和恢复推进。
+- 截止日期可选，支持没有明确日期的个人任务。
+- 记录预计剩余时间和实际投入时间。
+- 根据截止日期、后果严重度、剩余用时、今日可用时间及当前精力生成计划。
+- 支持部分进度、完成今日份额、跳过、手动排序和主动重排。
+- 今日计划保持稳定，完成后不会自动添加更多任务。
+- 防止跨设备旧页面覆盖新数据和重复提交。
+- 支持 JSON 导出/恢复及在线 SQLite 完整备份。
+
+技术栈为 Python 3.11+、Flask、SQLite 和原生 HTML/CSS/JavaScript。无需前端构建，不依赖外部字体、AI API 或 CDN；生产环境使用 Linux 和 Gunicorn。
+
+## 本地运行
+
+在项目根目录执行（Linux/macOS；Windows 可使用 WSL）：
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.lock
+.venv/bin/flask --app day_enough set-password
+.venv/bin/flask --app day_enough run --host 127.0.0.1 --port 8000
+```
+
+打开 <http://127.0.0.1:8000>。首次命令会交互式设置至少 12 个字符的个人密码，密码不会写入源代码。未设置密码时，应用会显示初始化提示。
+
+忘记密码可以重新执行 `set-password`。原有登录会话将失效，任务数据保持不变。
+
+Flask 开发服务器只用于本机试用；服务器安装方式见[部署说明](docs/DEPLOYMENT.md)。
+
+## 每天怎么用
+
+1. 添加任务，估计还需要多少分钟。截止日期可以留空；长期项目也可以写一个具体下一步。
+2. 在「今天」设置可支配分钟与精力，生成计划。
+3. 做完一部分时使用「记一部分」；完成推荐份额时使用「完成今日份额」。
+4. 如果实际难度不同，在任务列表中修正剩余时间估计。
+5. 当前份额全部处理后就可以收工。新增或修改任务不会自动增加今日安排，只有主动重排才会改变计划。
+
+填写了截止日期的任务按上海时区当天结束处理。无截止日期任务仍会参与推荐，但不会产生截止风险提醒。精力是对高消耗任务的粗略约束，不是医学或生理量表。
+
+重排会扣除当天已经记录的投入，并保留已完成或跳过的份额。跳过只影响当天。未来可用时间暂按每天相同的默认时间估计，包括周末；未来精力按「一般」估计。截止风险提示是估算，不是按时完成的保证。
+
+## 数据与备份
+
+默认数据目录是项目下的 `instance/`，其中包含 SQLite 数据库和会话签名密钥，已加入 `.gitignore`。可以用 `DAY_ENOUGH_DATA` 指定其他绝对路径。
+
+- 日常备份：设置 → 导出 JSON。文件包含任务、计划、投入记录和默认时间，不包含密码。
+- 恢复：设置 → 从备份恢复。恢复会替换全部当前任务数据，应先导出当前状态。
+- 服务器完整备份：
+
+```bash
+.venv/bin/flask --app day_enough backup backups/day-enough-2026-09-21.sqlite
+```
+
+备份命令使用 SQLite backup API，拒绝覆盖已有文件并校验数据库完整性。不要直接复制运行中的 SQLite 主文件，因为未合并的数据可能仍在 WAL 中。完整 SQLite 备份包含密码哈希，应与任务数据一样妥善保存。
+
+## 验证
+
+```bash
+.venv/bin/pip install -r requirements-dev.txt
+.venv/bin/python -m pytest -q
+node --check day_enough/static/app.js
+```
+
+可选的真实浏览器验收使用临时数据库，不会修改个人数据：
+
+```bash
+.venv/bin/pip install -r requirements-browser.txt
+.venv/bin/python tests/browser_smoke.py
+```
+
+浏览器验收默认使用 `/usr/bin/google-chrome`，其他位置可通过 `CHROME_BIN` 指定。截图输出在已忽略的 `test-results/`。Node 只用于可选的 JavaScript 语法检查，应用本身不依赖 Node。
+
+## 项目文档
+
+- [MVP 范围与规则](docs/MVP.md)
+- [原策划案尚未实现的功能](docs/PLANNED_FEATURES.md)
+- [部署说明](docs/DEPLOYMENT.md)
+- [开发接续状态](docs/WORK_STATUS.md)
+- [原始产品策划案](raw/任务规划助手策划案v0.4.md)
+
+新会话继续开发前，应先阅读 `docs/WORK_STATUS.md` 和 `docs/MVP.md`。每完成一个可验证的小阶段，更新状态文件。
+
+当前 MVP 尚未包含周期任务、问卷、自适应学习、周视图、AI 周报、推送通知、离线同步和多用户。完整对照见未实现功能文档。

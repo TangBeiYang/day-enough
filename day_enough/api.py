@@ -38,12 +38,14 @@ def text_field(data, name, maximum, required=True):
     return val.strip()
 
 
-def date_field(val):
+def optional_date_field(val):
+    if val == '':
+        return ''
     try:
         if not isinstance(val, str) or date.fromisoformat(val).isoformat() != val:
             raise ValueError()
     except ValueError:
-        abort(400, '日期格式须为 YYYY-MM-DD。')
+        abort(400, '截止日期须留空或使用 YYYY-MM-DD 格式。')
     return val
 
 
@@ -194,7 +196,7 @@ def state():
 def task_fields(data):
     title = text_field(data, 'title', 120)
     step = text_field(data, 'next_step', 500, False)
-    due = date_field(data.get('due_date'))
+    due = optional_date_field(data.get('due_date'))
     if data.get('energy') not in LEVELS or data.get('consequence') not in LEVELS:
         abort(400, '请选择有效的精力等级和后果严重度。')
     remaining = integer(data.get('remaining_minutes'), '剩余分钟', 0)

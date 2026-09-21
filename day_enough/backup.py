@@ -45,7 +45,9 @@ def restore_data(db, data):
                         raise ValueError('文本字段无效')
                     if col in ('id', 'task_id') and str(UUID(val)) != val:
                         raise ValueError('标识格式无效')
-                    if col in ('due_date', 'day') and date.fromisoformat(val).isoformat() != val:
+                    if col == 'due_date' and val == '':
+                        pass
+                    elif col in ('due_date', 'day') and date.fromisoformat(val).isoformat() != val:
                         raise ValueError('日期无效')
                     if col in ('created_at', 'updated_at'):
                         datetime.fromisoformat(val)

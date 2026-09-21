@@ -60,6 +60,7 @@ function dateLabel(day) {
   return new Intl.DateTimeFormat('zh-CN', {timeZone:'Asia/Shanghai', year:'numeric', month:'long', day:'numeric', weekday:'long'}).format(new Date(day + 'T12:00:00+08:00'));
 }
 function dueLabel(day) {
+  if (!day) return '无截止日期';
   const delta = Math.round((Date.parse(day + 'T00:00:00Z') - Date.parse(state.day + 'T00:00:00Z')) / 86400000);
   return delta < 0 ? `已逾期 ${-delta} 天` : delta === 0 ? '今天截止' : delta === 1 ? '明天截止' : `${day.slice(5).replace('-', '/')} 截止`;
 }
@@ -138,7 +139,7 @@ function taskDialog(task) {
   $('#task-dialog-title').textContent = task ? '调整这件事' : '添加一件要做的事';
   form.elements.task_id.value = task?.id || '';
   form.elements.title.value = task?.title || '';
-  form.elements.due_date.value = task?.due_date || state.day;
+  form.elements.due_date.value = task?.due_date || '';
   form.elements.remaining_minutes.value = task?.remaining_minutes ?? 60;
   form.elements.remaining_minutes.min = task ? 0 : 1;
   form.elements.consequence.value = task?.consequence || 'medium';

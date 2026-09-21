@@ -40,13 +40,14 @@ def main():
                 page.get_by_role('button',name='进入我的一天').click()
                 expect(page.locator('#app')).to_be_visible()
                 expect(page.get_by_role('heading',name='从一件小事开始')).to_be_visible()
-                for title,minutes,energy,step in [
-                    ('课程报告 · 整理文献',240,'high','先整理三篇参考文献，记下各自的研究问题。'),
-                    ('数据结构 · 每日练习',60,'medium','完成两道二叉树练习题。'),
-                    ('回复课程邮件',15,'low','确认小组展示的时间。')]:
+                for title,minutes,energy,step,due in [
+                    ('课程报告 · 整理文献',240,'high','先整理三篇参考文献，记下各自的研究问题。','2026-09-17'),
+                    ('数据结构 · 每日练习',60,'medium','完成两道二叉树练习题。','2026-09-17'),
+                    ('长期阅读',15,'low','读完当前章节。','')]:
                     page.get_by_role('button',name='＋ 新建任务',exact=True).click()
                     page.get_by_label('任务名称',exact=True).fill(title)
-                    page.get_by_label('截止日期',exact=True).fill('2026-09-17')
+                    if due:
+                        page.get_by_label('截止日期').fill(due)
                     page.get_by_label('预计还需多少分钟').fill(str(minutes))
                     page.get_by_label('需要的精力').select_option(energy)
                     page.get_by_label('具体下一步').fill(step)
@@ -66,7 +67,8 @@ def main():
                 expect(page.locator('.task-card.finished')).to_have_count(1)
                 page.get_by_role('link',name='我的任务').click()
                 expect(page.locator('.library-card')).to_have_count(3)
-                page.locator('.library-card').filter(has=page.get_by_role('heading',name='回复课程邮件',exact=True)).get_by_role('button',name='编辑',exact=True).click()
+                expect(page.get_by_text('无截止日期', exact=True)).to_be_visible()
+                page.locator('.library-card').filter(has=page.get_by_role('heading',name='长期阅读',exact=True)).get_by_role('button',name='编辑',exact=True).click()
                 page.get_by_label('任务名称',exact=True).fill('修改后的任务 <script>alert(1)</script>')
                 page.get_by_role('button',name='保存任务',exact=True).click()
                 expect(page.locator('#task-dialog')).not_to_be_visible()

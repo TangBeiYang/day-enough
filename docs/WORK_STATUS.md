@@ -1,6 +1,6 @@
 # 工作状态（新会话先读）
 
-更新时间：2026-09-14
+更新时间：2026-09-21
 阶段：**本地 MVP 已实现并通过验证；待用户设置个人密码、试用与提供服务器部署信息。**
 
 ## 已确认的决定
@@ -21,14 +21,17 @@
 - 上海时区划分日期，跨天的旧操作被拒绝并要求刷新。
 - JSON 导出/恢复（验证后事务替换，不包含凭据）；SQLite 在线完整备份与完整性检查。
 - README、生产依赖锁文件、部署说明、Gunicorn/systemd、Caddy、每日备份 timer 模板。
+- 截止日期可留空；无截止日期任务仍参与推荐，但不产生截止风险提示。
+- README 改为英文，新增中文 `README_ch.md`，两者可相互跳转。
+- 新增 `docs/PLANNED_FEATURES.md`，对照 v0.4 策划案记录未实现与部分实现功能。
 
 ## 最近验证
-- `python -m pytest -q`：**28 passed，2.60s**。
+- `python -m pytest -q`：**29 passed，2.49s**。
 - 覆盖真实并发写入、重复提交、跨天、精力/时间限额、固定计划、认证、导入攻击输入、JSON/SQLite 恢复。
 - `node --check day_enough/static/app.js`：通过。
 - `gunicorn --check-config 'day_enough:create_app()'`：通过。
 - `git diff --check`：通过。
-- `python tests/browser_smoke.py`：真实 Chrome 通过（临时数据库），含登录、建任务、计划、部分进度、完成、编辑/XSS、搜索/归档、设置、导出恢复、双浏览器冲突、移动端；无 JS/CSP 错误、无横向溢出。
+- `python tests/browser_smoke.py`：真实 Chrome 通过（临时数据库），含登录、有/无截止日期任务、计划、部分进度、完成、编辑/XSS、搜索/归档、设置、导出恢复、双浏览器冲突、移动端；无 JS/CSP 错误、无横向溢出。
 - 已目视查看登录、今日页面、手机截图。截图在忽略的 `test-results/`，含测试数据。
 - 浏览器验收发现并修正 hidden input 的 name=id 遮蔽 form.id 的问题；测试固定按任务名定位，避免创建同秒时顺序不确定。
 - 最后做了手机导航不换行的小样式修正。

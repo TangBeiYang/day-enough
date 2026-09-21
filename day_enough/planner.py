@@ -7,6 +7,8 @@ LABELS = {'low': '低', 'medium': '中', 'high': '高'}
 
 
 def days_left(task, today):
+    if not task['due_date']:
+        return None
     return (date.fromisoformat(task['due_date']) - today).days
 
 
@@ -17,19 +19,23 @@ def recommend(tasks, today, budget, energy, already_worked=0, high_worked=0, exc
                   and t['remaining_minutes'] > 0 and t['id'] not in excluded]
 
     def urgency(t):
-        days = max(1, days_left(t, today) + 1)
+        remaining_days = days_left(t, today)
+        if remaining_days is None:
+            return {'low': 1, 'medium': 1.5, 'high': 2}[t['consequence']]
+        days = max(1, remaining_days + 1)
         # Daily effort pressure lets long projects compete before the last day.
         pressure = t['remaining_minutes'] / days
         weight = {'low': 1, 'medium': 1.5, 'high': 2}[t['consequence']]
-        return pressure * weight + (240 if days_left(t, today) <= 0 else 60 / days)
+        return pressure * weight + (240 if remaining_days <= 0 else 60 / days)
 
-    candidates.sort(key=lambda t: (-urgency(t), t['due_date'], t['id']))
+    candidates.sort(key=lambda t: (-urgency(t), t['due_date'] or '9999-12-31', t['id']))
     result = []
     for task in candidates:
         if available <= 0:
             break
         days = days_left(task, today)
-        share = ceil(task['remaining_minutes'] / max(1, days + 1) / 15) * 15
+        share = (ceil(task['remaining_minutes'] / max(1, days + 1) / 15) * 15
+                 if days is not None else 30)
         # At least a meaningful short session, unless the task has less remaining.
         target = max(30, share)
         minutes = min(task['remaining_minutes'], target, available)
@@ -37,8 +43,11 @@ def recommend(tasks, today, budget, energy, already_worked=0, high_worked=0, exc
             minutes = min(minutes, high_available)
         if minutes <= 0:
             continue
-        deadline = '已过截止日期' if days < 0 else ('今天截止' if days == 0 else f'距截止还有 {days} 天')
-        reason = f'{deadline} · 后果{LABELS[task["consequence"]]} · 按剩余工作量分配'
+        if days is None:
+            reason = f'无截止日期 · 后果{LABELS[task["consequence"]]} · 安排一个可推进份额'
+        else:
+            deadline = '已过截止日期' if days < 0 else ('今天截止' if days == 0 else f'距截止还有 {days} 天')
+            reason = f'{deadline} · 后果{LABELS[task["consequence"]]} · 按剩余工作量分配'
         result.append({'task_id': task['id'], 'planned_minutes': minutes, 'reason': reason})
         available -= minutes
         if task['energy'] == 'high':
@@ -48,7 +57,8 @@ def recommend(tasks, today, budget, energy, already_worked=0, high_worked=0, exc
 
 def risks(tasks, today, default_minutes, today_budget, worked, energy, high_worked, planned):
     """Conservative deadline feasibility checks; estimates, not promises."""
-    active = sorted([t for t in tasks if t['status'] == 'active' and t['remaining_minutes'] > 0],
+    active = sorted([t for t in tasks if t['status'] == 'active'
+                     and t['remaining_minutes'] > 0 and t['due_date']],
                     key=lambda t: (t['due_date'], t['id']))
     warnings = []
     cumulative = 0
