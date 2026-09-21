@@ -11,6 +11,7 @@ from flask import Blueprint, abort, current_app, jsonify, request, session
 from werkzeug.security import check_password_hash, generate_password_hash
 from .db import get_db, value, set_value
 from .planner import recommend, risks
+from .recurrence import next_occurrence, sync_recurring
 
 bp = Blueprint('api', __name__, url_prefix='/api')
 LEVELS = ('low', 'medium', 'high')
@@ -38,14 +39,14 @@ def text_field(data, name, maximum, required=True):
     return val.strip()
 
 
-def optional_date_field(val):
+def optional_date_field(val, label='截止日期'):
     if val == '':
         return ''
     try:
         if not isinstance(val, str) or date.fromisoformat(val).isoformat() != val:
             raise ValueError()
     except ValueError:
-        abort(400, '截止日期须留空或使用 YYYY-MM-DD 格式。')
+        abort(400, f'{label}须留空或使用 YYYY-MM-DD 格式。')
     return val
 
 
@@ -77,6 +78,7 @@ def snapshot(db):
     plan_row = db.execute('SELECT * FROM plans WHERE day=?', (day,)).fetchone()
     plan = dict(plan_row) if plan_row else None
     items = [dict(row) for row in db.execute('''SELECT i.*, t.title, t.due_date, t.energy,
+        t.planned_date, t.recurrence_id, t.occurrence_date,
         t.remaining_minutes, t.next_step, t.status AS task_status
         FROM items i JOIN tasks t ON t.id=i.task_id WHERE i.day=? ORDER BY i.position,i.id''', (day,))]
     totals = db.execute("SELECT COALESCE(SUM(minutes),0), COALESCE(SUM(CASE WHEN energy='high' THEN minutes ELSE 0 END),0) FROM work_logs WHERE day=?", (day,)).fetchone()
@@ -88,7 +90,14 @@ def snapshot(db):
                      plan['energy'] if plan else 'medium', totals[1], allocations) if tasks else []
     if plan and totals[0] > plan['budget']:
         warnings.insert(0, '今天记录的投入已超过时间预算，可以收工了。')
+    recurrences = [dict(row) for row in db.execute('SELECT * FROM recurrences ORDER BY created_at DESC,id')]
+    for rule in recurrences:
+        rule['weekdays'] = json.loads(rule['weekdays'])
+    handled = {i['task_id'] for i in items}
+    unplanned = [t['id'] for t in tasks if t['status'] == 'active' and t['planned_date']
+                 and t['planned_date'] <= day and t['id'] not in handled]
     return {'day': day, 'revision': int(value(db, 'revision')), 'tasks': tasks,
+            'recurrences': recurrences, 'unplanned_scheduled': unplanned,
             'plan': plan, 'items': items, 'worked_minutes': totals[0],
             'remaining_planned': sum(allocations.values()), 'warnings': warnings,
             'settings': {'default_minutes': default, 'timezone': 'Asia/Shanghai'}}
@@ -119,7 +128,9 @@ def mutation(fn):
             else:
                 if data['revision'] != int(value(db, 'revision')):
                     abort(409, '其他页面已更新数据。请刷新，核对最新内容后再提交。')
+                sync_recurring(db, today(), now())
                 fn(db, data, *args, **kwargs)
+                sync_recurring(db, today(), now())
                 set_value(db, 'revision', data['revision'] + 1)
                 db.execute('INSERT INTO receipts VALUES (?,?)', (token, fingerprint))
             result = snapshot(db)
@@ -183,8 +194,10 @@ def logout():
 def state():
     require_auth()
     db = get_db()
-    db.execute('BEGIN')
+    db.execute('BEGIN IMMEDIATE')
     try:
+        if sync_recurring(db, today(), now()):
+            set_value(db, 'revision', int(value(db, 'revision')) + 1)
         result = snapshot(db)
         db.commit()
         return jsonify(result)
@@ -201,6 +214,13 @@ def task_fields(data):
         abort(400, '请选择有效的精力等级和后果严重度。')
     remaining = integer(data.get('remaining_minutes'), '剩余分钟', 0)
     return title, due, data['consequence'], data['energy'], remaining, step
+
+
+def planned_date_field(data, due, default=''):
+    planned = optional_date_field(data.get('planned_date', default), '计划日期')
+    if planned and due and planned > due:
+        abort(400, '计划日期不能晚于截止日期。')
+    return planned
 
 
 def task_by_id(db, task_id):
@@ -220,8 +240,9 @@ def add_task(db, data):
     fields = task_fields(data)
     if fields[4] <= 0:
         abort(400, '新任务的预计用时须大于 0。')
-    db.execute('''INSERT INTO tasks(id,title,due_date,consequence,energy,remaining_minutes,next_step,created_at,updated_at)
-                  VALUES (?,?,?,?,?,?,?,?,?)''', (str(uuid4()), *fields, now(), now()))
+    planned = planned_date_field(data, fields[1])
+    db.execute('''INSERT INTO tasks(id,title,due_date,consequence,energy,remaining_minutes,next_step,created_at,updated_at,planned_date)
+                  VALUES (?,?,?,?,?,?,?,?,?,?)''', (str(uuid4()), *fields, now(), now(), planned))
 
 
 @bp.post('/tasks/<task_id>')
@@ -231,6 +252,9 @@ def edit_task(db, data, task_id):
     if data.get('version') != task['version']:
         abort(409, '任务已有新版本，请刷新。')
     fields = task_fields(data)
+    planned = planned_date_field(data, fields[1], task['planned_date'])
+    if task['recurrence_id'] and not planned:
+        abort(400, '周期任务的本次计划日期不能为空。')
     status = data.get('status', task['status'])
     if status not in ('active', 'done', 'archived'):
         abort(400, '任务状态无效。')
@@ -239,9 +263,89 @@ def edit_task(db, data, task_id):
     if status == 'done':
         fields = (*fields[:4], 0, fields[5])
     db.execute('''UPDATE tasks SET title=?,due_date=?,consequence=?,energy=?,remaining_minutes=?,next_step=?,
-                  status=?,version=version+1,updated_at=? WHERE id=?''', (*fields, status, now(), task_id))
+                  status=?,version=version+1,updated_at=?,planned_date=?,missed=0 WHERE id=?''', (*fields, status, now(), planned, task_id))
     if status != 'active':
         settle_items(db, task_id)
+    elif planned > today():
+        db.execute("UPDATE items SET status='skipped' WHERE task_id=? AND day=? AND status='pending'", (task_id, today()))
+
+
+def recurrence_fields(data, previous=None):
+    fields = task_fields({**data, 'due_date': ''})
+    if fields[4] <= 0:
+        abort(400, '每次预计用时须大于 0。')
+    frequency = data.get('frequency')
+    weekdays = data.get('weekdays', [])
+    if frequency not in ('daily', 'weekly', 'monthly'):
+        abort(400, '请选择每天、每周或每月。')
+    if (not isinstance(weekdays, list) or len(weekdays) > 7
+            or any(type(d) is not int or not 0 <= d <= 6 for d in weekdays)):
+        abort(400, '星期设置无效。')
+    if frequency == 'weekly' and not weekdays:
+        abort(400, '每周任务至少选择一个星期。')
+    month_day = integer(data.get('month_day', 0), '每月日期', 0, 31)
+    start = optional_date_field(data.get('planned_date', previous['start_date'] if previous else ''), '开始日期')
+    if not start or start > '9998-12-31':
+        abort(400, '请填写有效的开始日期（不超过 9998 年）。')
+    if previous and start != previous['start_date']:
+        abort(400, '已有周期规则的开始日期不能修改，可调整周期或暂停。')
+    if not previous and start < today():
+        abort(400, '新周期任务的开始日期不能早于今天。')
+    policy = data.get('missed_policy', 'skip')
+    if policy not in ('skip', 'carry'):
+        abort(400, '请选择漏做后不补做或保留待办。')
+    due = data.get('due_on_planned', False)
+    if type(due) not in (bool, int) or due not in (0, 1):
+        abort(400, '截止设置无效。')
+    weekdays = sorted(set(weekdays)) if frequency == 'weekly' else []
+    month_day = month_day if frequency == 'monthly' else 0
+    next_day = next_occurrence(frequency, weekdays, month_day, start, today())
+    return (fields[0], fields[2], fields[3], fields[4], fields[5], frequency,
+            json.dumps(weekdays), month_day, start, next_day, int(due), policy)
+
+
+@bp.post('/recurrences')
+@mutation
+def add_recurrence(db, data):
+    fields = recurrence_fields(data)
+    db.execute('''INSERT INTO recurrences
+        (id,title,consequence,energy,minutes,next_step,frequency,weekdays,month_day,
+         start_date,next_date,due_on_planned,missed_policy,created_at,updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''', (str(uuid4()), *fields, now(), now()))
+
+
+def recurrence_by_id(db, rule_id, data):
+    rule = db.execute('SELECT * FROM recurrences WHERE id=?', (rule_id,)).fetchone()
+    if not rule:
+        abort(404, '周期规则不存在。')
+    if data.get('version') != rule['version']:
+        abort(409, '周期规则已有新版本，请刷新。')
+    return rule
+
+
+@bp.post('/recurrences/<rule_id>')
+@mutation
+def edit_recurrence(db, data, rule_id):
+    rule = recurrence_by_id(db, rule_id, data)
+    fields = recurrence_fields(data, rule)
+    db.execute('''UPDATE recurrences SET title=?,consequence=?,energy=?,minutes=?,next_step=?,
+        frequency=?,weekdays=?,month_day=?,start_date=?,next_date=?,due_on_planned=?,missed_policy=?,
+        version=version+1,updated_at=? WHERE id=?''', (*fields, now(), rule_id))
+
+
+@bp.post('/recurrences/<rule_id>/status')
+@mutation
+def recurrence_status(db, data, rule_id):
+    rule = recurrence_by_id(db, rule_id, data)
+    status = data.get('status')
+    if status not in ('active', 'paused'):
+        abort(400, '周期规则状态无效。')
+    next_day = rule['next_date']
+    if rule['status'] == 'paused' and status == 'active':
+        next_day = next_occurrence(rule['frequency'], json.loads(rule['weekdays']),
+                                   rule['month_day'], rule['start_date'], today())
+    db.execute('UPDATE recurrences SET status=?,next_date=?,version=version+1,updated_at=? WHERE id=?',
+               (status, next_day, now(), rule_id))
 
 
 @bp.post('/tasks/<task_id>/work')

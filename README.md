@@ -11,6 +11,7 @@ DayEnough is a desktop-first personal web app. It stores data on one server so t
 - Personal password login without registration or third-party accounts.
 - Create, edit, complete, archive, and reactivate tasks.
 - Optional deadlines for open-ended personal tasks.
+- Optional planned dates for ordinary tasks; daily, weekly, and monthly recurring tasks with independent progress for each occurrence.
 - Track estimated remaining time and actual time spent.
 - Generate a daily plan from deadlines, consequences, remaining effort, available time, and current energy.
 - Record partial progress, complete a daily share, skip an item, reorder the plan, or explicitly regenerate it.
@@ -49,11 +50,21 @@ Filled deadlines use the end of that date in the `Asia/Shanghai` timezone. Undat
 
 Regenerating a plan accounts for time already recorded and preserves completed or skipped shares. Skipping applies only to the current day. Future capacity currently assumes the same default available time every day, including weekends, and medium energy. Deadline warnings are estimates, not guarantees.
 
+## Planned dates and recurring tasks
+
+A planned date means “start recommending this task on this day.” A deadline means “finish by this day.” Ordinary tasks can leave either date blank; a planned date cannot be later than a filled deadline.
+
+Choose **Recurring task** when adding a task, then select daily, selected weekdays, or a monthly date (including month-end). The planned date is the recurrence start date. Dates such as the 31st fall on the last day of shorter months. Estimated minutes apply to each occurrence. Optionally make its planned day its deadline.
+
+Occurrences are created when you open or refresh the app or perform an action; no background scheduler is required. Each has its own progress. By default, unfinished occurrences are marked missed after their planned day, retaining work already recorded without adding debt to the next occurrence. Choose **Keep pending** to keep unfinished occurrences available instead.
+
+Manage rules and occurrence history in **My tasks → Recurring tasks**. Editing a rule affects future, uncreated occurrences; edit an existing occurrence separately. Pausing stops new occurrences but keeps existing ones. Resuming does not backfill the paused period. Recurring tasks still respect time and energy limits, and existing daily plans change only when explicitly regenerated.
+
 ## Data and backups
 
 By default, the `instance/` directory contains the SQLite database and session-signing key. It is excluded from Git. Set `DAY_ENOUGH_DATA` to use another absolute data directory.
 
-- Use **Settings → Export JSON backup** for routine portable backups. The file contains tasks, plans, work logs, and default time, but no password.
+- Use **Settings → Export JSON backup** for routine portable backups. The file contains tasks, recurrence rules, plans, work logs, and default time, but no password.
 - Use **Settings → Restore from backup** to restore a JSON backup. This replaces all current task data, so export the current state first.
 - Make a consistent server-side SQLite backup with:
 
@@ -62,6 +73,8 @@ By default, the `instance/` directory contains the SQLite database and session-s
 ```
 
 The backup command uses SQLite's backup API, refuses to overwrite an existing file, and verifies database integrity. Do not copy a live SQLite main file directly because unmerged data may still be in its WAL. A full SQLite backup includes the password hash and should be protected like the task data.
+
+On startup, existing databases are automatically upgraded by adding the new fields and recurrence table. Back up before upgrading and restart the app after updating the code. JSON exports use version 2; version 1 backups can still be restored, with blank planned dates and no recurrence rules. Older app versions cannot read version 2 backups.
 
 ## Verification
 
@@ -90,4 +103,4 @@ The browser test uses `/usr/bin/google-chrome` by default. Set `CHROME_BIN` for 
 
 Before continuing development in a new session, read `docs/WORK_STATUS.md` and `docs/MVP.md`. Update the status file after each verified milestone.
 
-The current MVP does not include recurring tasks, questionnaires, adaptive learning, a weekly view, AI reports, push notifications, offline synchronization, or multiple users. See the planned-features document for the complete comparison with the original proposal.
+The current MVP does not include custom recurrence intervals, questionnaires, adaptive learning, a weekly view, AI reports, push notifications, offline synchronization, or multiple users. See the planned-features document for the complete comparison with the original proposal.

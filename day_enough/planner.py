@@ -16,12 +16,13 @@ def recommend(tasks, today, budget, energy, already_worked=0, high_worked=0, exc
     available = max(0, budget - already_worked)
     high_available = max(0, int(budget * ENERGY_SHARE[energy]) - high_worked)
     candidates = [t for t in tasks if t['status'] == 'active'
-                  and t['remaining_minutes'] > 0 and t['id'] not in excluded]
+                  and t['remaining_minutes'] > 0 and t['id'] not in excluded
+                  and (not t.get('planned_date') or t['planned_date'] <= today.isoformat())]
 
     def urgency(t):
         remaining_days = days_left(t, today)
         if remaining_days is None:
-            return {'low': 1, 'medium': 1.5, 'high': 2}[t['consequence']]
+            return {'low': 1, 'medium': 1.5, 'high': 2}[t['consequence']] + (60 if t.get('planned_date') else 0)
         days = max(1, remaining_days + 1)
         # Daily effort pressure lets long projects compete before the last day.
         pressure = t['remaining_minutes'] / days
@@ -38,6 +39,8 @@ def recommend(tasks, today, budget, energy, already_worked=0, high_worked=0, exc
                  if days is not None else 30)
         # At least a meaningful short session, unless the task has less remaining.
         target = max(30, share)
+        if task.get('recurrence_id'):
+            target = task['remaining_minutes']
         minutes = min(task['remaining_minutes'], target, available)
         if task['energy'] == 'high':
             minutes = min(minutes, high_available)
@@ -48,6 +51,8 @@ def recommend(tasks, today, budget, energy, already_worked=0, high_worked=0, exc
         else:
             deadline = '已过截止日期' if days < 0 else ('今天截止' if days == 0 else f'距截止还有 {days} 天')
             reason = f'{deadline} · 后果{LABELS[task["consequence"]]} · 按剩余工作量分配'
+        if task.get('planned_date'):
+            reason = f'计划 {task["planned_date"]} · ' + reason
         result.append({'task_id': task['id'], 'planned_minutes': minutes, 'reason': reason})
         available -= minutes
         if task['energy'] == 'high':

@@ -20,6 +20,26 @@ def get_db():
 def init_db(db):
     db.execute('PRAGMA journal_mode=WAL')
     db.executescript(Path(__file__).with_name('schema.sql').read_text())
+    # Additive migration preserves existing task ids, progress, plans and logs.
+    db.execute('BEGIN IMMEDIATE')
+    try:
+        columns = {row[1] for row in db.execute('PRAGMA table_info(tasks)')}
+        additions = {
+            'planned_date': "TEXT NOT NULL DEFAULT ''",
+            'recurrence_id': 'TEXT REFERENCES recurrences(id)',
+            'occurrence_date': "TEXT NOT NULL DEFAULT ''",
+            'missed_policy': "TEXT NOT NULL DEFAULT 'carry' CHECK(missed_policy IN ('skip','carry'))",
+            'missed': 'INTEGER NOT NULL DEFAULT 0 CHECK(missed IN (0,1))',
+        }
+        for column, definition in additions.items():
+            if column not in columns:
+                db.execute(f'ALTER TABLE tasks ADD COLUMN {column} {definition}')
+        db.execute('CREATE UNIQUE INDEX IF NOT EXISTS recurrence_occurrence ON tasks(recurrence_id,occurrence_date)')
+        db.execute('PRAGMA user_version=2')
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
 
 def value(db, key):
