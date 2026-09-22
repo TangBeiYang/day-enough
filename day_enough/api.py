@@ -11,7 +11,7 @@ from flask import Blueprint, abort, current_app, jsonify, request, session
 from werkzeug.security import check_password_hash, generate_password_hash
 from .db import get_db, value, set_value
 from .planner import recommend, risks
-from .recurrence import next_occurrence, sync_recurring
+from .recurrence import next_occurrence, sync_recurring, cycle_start
 
 bp = Blueprint('api', __name__, url_prefix='/api')
 LEVELS = ('low', 'medium', 'high')
@@ -94,8 +94,7 @@ def snapshot(db):
     for rule in recurrences:
         rule['weekdays'] = json.loads(rule['weekdays'])
     handled = {i['task_id'] for i in items}
-    unplanned = [t['id'] for t in tasks if t['status'] == 'active' and t['planned_date']
-                 and t['planned_date'] <= day and t['id'] not in handled]
+    unplanned = [t['id'] for t in tasks if t['status'] == 'active' and t['id'] not in handled]
     return {'day': day, 'revision': int(value(db, 'revision')), 'tasks': tasks,
             'recurrences': recurrences, 'unplanned_scheduled': unplanned,
             'plan': plan, 'items': items, 'worked_minutes': totals[0],
@@ -217,9 +216,9 @@ def task_fields(data):
 
 
 def planned_date_field(data, due, default=''):
-    planned = optional_date_field(data.get('planned_date', default), '计划日期')
+    planned = optional_date_field(data.get('planned_date', default), '计划完成日期')
     if planned and due and planned > due:
-        abort(400, '计划日期不能晚于截止日期。')
+        abort(400, '计划完成日期不能晚于截止日期。')
     return planned
 
 
@@ -254,7 +253,7 @@ def edit_task(db, data, task_id):
     fields = task_fields(data)
     planned = planned_date_field(data, fields[1], task['planned_date'])
     if task['recurrence_id'] and not planned:
-        abort(400, '周期任务的本次计划日期不能为空。')
+        abort(400, '周期任务的本次计划完成日期不能为空。')
     status = data.get('status', task['status'])
     if status not in ('active', 'done', 'archived'):
         abort(400, '任务状态无效。')
@@ -266,8 +265,6 @@ def edit_task(db, data, task_id):
                   status=?,version=version+1,updated_at=?,planned_date=?,missed=0 WHERE id=?''', (*fields, status, now(), planned, task_id))
     if status != 'active':
         settle_items(db, task_id)
-    elif planned > today():
-        db.execute("UPDATE items SET status='skipped' WHERE task_id=? AND day=? AND status='pending'", (task_id, today()))
 
 
 def recurrence_fields(data, previous=None):
@@ -302,7 +299,9 @@ def recurrence_fields(data, previous=None):
         abort(400, '截止日期与重复频率不匹配。')
     weekdays = sorted(set(weekdays)) if frequency == 'weekly' else []
     month_day = month_day if frequency == 'monthly' else 0
-    next_day = next_occurrence(frequency, weekdays, month_day, start, today())
+    next_day = next_occurrence(frequency, weekdays, month_day,
+                               start if previous else cycle_start(frequency, start),
+                               today() if previous else cycle_start(frequency, today()))
     return (fields[0], fields[2], fields[3], fields[4], fields[5], frequency,
             json.dumps(weekdays), month_day, start, next_day, int(due), policy, due_day)
 

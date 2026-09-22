@@ -65,7 +65,7 @@ function dueLabel(day) {
   return delta < 0 ? `已逾期 ${-delta} 天` : delta === 0 ? '今天截止' : delta === 1 ? '明天截止' : `${day.slice(5).replace('-', '/')} 截止`;
 }
 function scheduleTags(task) {
-  return `${task.planned_date ? `<span class="tag">计划 ${esc(task.planned_date)}</span>` : ''}${task.recurrence_id ? `<span class="tag">周期 · ${esc(task.occurrence_date)}</span>` : ''}${task.missed ? '<span class="tag high">未完成 · 不补做</span>' : ''}`;
+  return `${task.planned_date ? `<span class="tag">计划完成 ${esc(task.planned_date)}</span>` : ''}${task.status === 'active' && task.planned_date && task.planned_date < state.day ? '<span class="tag high">已超过计划完成日期</span>' : ''}${task.recurrence_id ? `<span class="tag">周期 · ${esc(task.occurrence_date)}</span>` : ''}${task.missed ? '<span class="tag high">未完成 · 不补做</span>' : ''}`;
 }
 function frequencyLabel(rule) {
   if (rule.frequency === 'daily') return '每天';
@@ -113,7 +113,7 @@ function todayPage() {
   const done = state.items.filter(i => i.status === 'done' || i.task_status !== 'active').length;
   let body = '';
   const unplanned = state.tasks.filter(t => state.unplanned_scheduled.includes(t.id));
-  const scheduledNotice = unplanned.length ? `<section class="warnings scheduled-notice"><h3>还有 ${unplanned.length} 件计划日期已到的任务未加入今日安排</h3><p>${unplanned.map(t=>esc(t.title)).join('、')}</p><p>可在任务列表中查看，或按当前预算主动重新安排。${unplanned.some(t=>t.recurrence_id) ? '周期任务同样需要占用时间和精力。' : ''}</p></section>` : '';
+  const scheduledNotice = unplanned.length ? `<section class="warnings scheduled-notice"><h3>还有 ${unplanned.length} 件待办尚未加入今日安排</h3><p>${unplanned.map(t=>esc(t.title)).join('、')}</p><p>可在任务列表中查看，或按当前预算主动重新安排。${unplanned.some(t=>t.recurrence_id) ? '周期任务同样需要占用时间和精力。' : ''}</p></section>` : '';
   if (!plan) body = empty('↗', tasks.length ? '让今天有一个起点' : '从一件小事开始', tasks.length ? '根据今天的时间和状态，生成一份有终点的安排。' : '记下要做的事和大致用时，我们一起决定今天先推进什么。', tasks.length ? '' : '<button class="button primary" data-action="new-task">＋ 添加第一件任务</button>');
   else {
     if (!pending.length) {
@@ -141,7 +141,7 @@ function recurrenceCards() {
   if (!rules.length) return empty('↻', search ? '没有找到匹配的周期任务' : '给日常留一个固定位置', '每天背单词、每周整理笔记、每月总结，都可以只设置一次。', '<button class="button primary" data-action="new-rule">＋ 新建周期任务</button>');
   return `<div class="task-grid">${rules.map(r=>{
     const instances = state.tasks.filter(t=>t.recurrence_id===r.id).sort((a,b)=>b.occurrence_date.localeCompare(a.occurrence_date));
-    return `<article class="card recurrence-card"><h3>${esc(r.title)}</h3><div class="tag-row"><span class="tag">${esc(frequencyLabel(r))}</span><span class="tag">每次 ${r.minutes} 分钟</span><span class="tag ${r.status==='paused'?'high':''}">${r.status==='paused'?'已暂停':'重复中'}</span></div><p class="muted">${r.missed_policy==='skip'?'漏做不补做':'漏做保留待办'}${r.due_on_planned?' · 计划日也是截止日':''}</p><p class="field-note">${r.status==='paused'?'暂停期间不生成新任务，已有待办仍保留。':`下一次：${esc(r.next_date)}${r.frequency==='monthly'?' · 缺少指定日期时取月末':''}`}</p><div class="task-actions"><button class="button small" data-action="edit-rule" data-id="${r.id}">编辑规则</button><button class="link-button" data-action="toggle-rule" data-id="${r.id}">${r.status==='paused'?'恢复重复':'暂停重复'}</button></div><details class="occurrence-history"><summary>本次与历史记录（${instances.length}）</summary><div class="task-stack">${instances.length?instances.map(taskCard).join(''):'<p class="muted">到计划日期后生成第一份任务。</p>'}</div></details></article>`;
+    return `<article class="card recurrence-card"><h3>${esc(r.title)}</h3><div class="tag-row"><span class="tag">${esc(frequencyLabel(r))}</span><span class="tag">每次 ${r.minutes} 分钟</span><span class="tag ${r.status==='paused'?'high':''}">${r.status==='paused'?'已暂停':'重复中'}</span></div><p class="muted">${r.missed_policy==='skip'?'漏做不补做':'漏做保留待办'}${r.due_on_planned?' · 计划日也是截止日':''}</p><p class="field-note">${r.status==='paused'?'暂停期间不生成新任务，已有待办仍保留。':`下个未生成任务的计划完成日期：${esc(r.next_date)}${r.frequency==='monthly'?' · 缺少指定日期时取月末':''}`}</p><div class="task-actions"><button class="button small" data-action="edit-rule" data-id="${r.id}">编辑规则</button><button class="link-button" data-action="toggle-rule" data-id="${r.id}">${r.status==='paused'?'恢复重复':'暂停重复'}</button></div><details class="occurrence-history"><summary>本次与历史记录（${instances.length}）</summary><div class="task-stack">${instances.length?instances.map(taskCard).join(''):'<p class="muted">开始日期到达后，提前生成当前周期内的任务。</p>'}</div></details></article>`;
   }).join('')}</div>`;
 }
 function tasksPage() {
@@ -180,8 +180,8 @@ function updateTaskKind() {
   $('#task-due-field').hidden = recurring;
   $('#task-due').disabled = recurring;
   $('#task-planned').required = recurring || kind === 'occurrence';
-  $('#planned-label').textContent = recurring ? '从哪天开始重复' : kind === 'occurrence' ? '本次计划日期' : '计划日期（可选）';
-  $('#planned-help').textContent = recurring ? '从这天起，按所选周期出现；每次都有自己的计划日期。' : '从这天起参与推荐；这不是硬性截止日期。';
+  $('#planned-label').textContent = recurring ? '从哪天开始重复' : kind === 'occurrence' ? '本次计划完成日期' : '计划完成日期（可选）';
+  $('#planned-help').textContent = recurring ? '规则从这天生效；本周或本月的任务会提前参与推荐。' : '希望哪天完成；创建后即可参与推荐，这不是硬性截止日期。';
   $('#minutes-label').textContent = recurring ? '每次预计多少分钟' : '预计还需多少分钟';
   if (recurring && !$('#task-planned').value) $('#task-planned').value = state.day;
   $('#rule-weekdays').hidden = $('#rule-frequency').value !== 'weekly';
@@ -206,7 +206,7 @@ function updateRuleSummary() {
   const due = frequency === 'daily' ? ($('#rule-due').checked ? '当天截止' : '不设截止') : $('#rule-deadline').selectedOptions[0].textContent;
   const wrap = frequency === 'weekly' && Number($('#rule-deadline').value) >= 0 && $$('[name="weekdays"]:checked').some(input=>Number(input.value)>Number($('#rule-deadline').value));
   const monthlyWrap = frequency === 'monthly' && Number($('#rule-deadline').value)>0 && ($('#rule-month-day').value==='0' || Number($('#rule-deadline').value)<Number($('#rule-month-day').value));
-  $('#rule-summary').textContent = `从 ${$('#task-planned').value || '所选开始日期'} 起，${schedule}计划，每次 ${$('#task-remaining').value || '—'} 分钟；截止：${due}${wrap?'（早于计划星期的顺延到下一周）':monthlyWrap?'（取计划日当天或之后最近的日期，必要时顺延到下个月）':''}；${$('#rule-missed').value==='skip'?'到期未完成不补做':'未完成保留待办'}。`;
+  $('#rule-summary').textContent = `从 ${$('#task-planned').value || '所选开始日期'} 起，${schedule}计划完成，每次 ${$('#task-remaining').value || '—'} 分钟；截止：${due}${wrap?'（早于计划星期的顺延到下一周）':monthlyWrap?'（取计划日当天或之后最近的日期，必要时顺延到下个月）':''}；${$('#rule-missed').value==='skip'?'到期未完成不补做':'未完成保留待办'}。`;
 }
 function taskDialog(task, rule = null, newRule = false) {
   const form = $('#task-form'); form.reset();
@@ -342,7 +342,7 @@ document.addEventListener('submit',event=>{
     } else if(values.task_id) body.status=body.remaining_minutes>0&&base.status==='done'?'active':base.status;
     const collection = recurring ? '/recurrences' : '/tasks';
     await mutate(values.task_id?`${collection}/${values.task_id}`:collection,body,{revision:base.revision,day:base.day});
-    $('#task-dialog').close();toast(recurring?'周期规则已保存，今日计划仍需主动重排。':values.task_id?'任务已更新。已有计划不会自动增加份额。':'任务已添加，到计划日期后可参与推荐。');
+    $('#task-dialog').close();toast(recurring?'周期规则已保存，今日计划仍需主动重排。':values.task_id?'任务已更新。已有计划不会自动增加份额。':'任务已添加，已进入推荐候选；生成或重排时可安排。');
   },form);
   if(form.id==='work-form') return run(async()=>{
     await mutate(`/tasks/${base.taskId}/work`,{minutes:Number(values.minutes)},{revision:base.revision,day:base.day});$('#work-dialog').close();toast('这次推进，记下了。');

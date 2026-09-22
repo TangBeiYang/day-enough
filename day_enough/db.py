@@ -1,6 +1,7 @@
 import sqlite3
 from pathlib import Path
 from flask import current_app, g
+from .recurrence import cycle_end
 
 
 def connect(path):
@@ -28,6 +29,7 @@ def init_db(db):
             'planned_date': "TEXT NOT NULL DEFAULT ''",
             'recurrence_id': 'TEXT REFERENCES recurrences(id)',
             'occurrence_date': "TEXT NOT NULL DEFAULT ''",
+            'cycle_end': "TEXT NOT NULL DEFAULT ''",
             'missed_policy': "TEXT NOT NULL DEFAULT 'carry' CHECK(missed_policy IN ('skip','carry'))",
             'missed': 'INTEGER NOT NULL DEFAULT 0 CHECK(missed IN (0,1))',
         }
@@ -38,7 +40,10 @@ def init_db(db):
         rule_columns = {row[1] for row in db.execute('PRAGMA table_info(recurrences)')}
         if 'due_day' not in rule_columns:
             db.execute('ALTER TABLE recurrences ADD COLUMN due_day INTEGER NOT NULL DEFAULT -1 CHECK(due_day BETWEEN -1 AND 31)')
-        db.execute('PRAGMA user_version=3')
+        if 'cycle_end' not in columns:
+            for task_id, occurrence, frequency in db.execute('SELECT t.id,t.occurrence_date,r.frequency FROM tasks t JOIN recurrences r ON r.id=t.recurrence_id').fetchall():
+                db.execute('UPDATE tasks SET cycle_end=? WHERE id=?', (cycle_end(frequency, occurrence), task_id))
+        db.execute('PRAGMA user_version=4')
         db.commit()
     except Exception:
         db.rollback()

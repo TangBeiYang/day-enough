@@ -5,19 +5,19 @@ from copy import deepcopy
 from datetime import date, datetime
 from uuid import UUID
 from .db import init_db
-from .recurrence import next_occurrence
+from .recurrence import next_occurrence, cycle_end, cycle_start
 
 TABLES = ('recurrences', 'tasks', 'plans', 'items', 'work_logs')
 
 
 def export_data(db):
-    return {'format': 'day-enough', 'version': 3,
+    return {'format': 'day-enough', 'version': 4,
             'default_minutes': int(db.execute("SELECT value FROM meta WHERE key='default_minutes'").fetchone()[0]),
             'tables': {name: [dict(row) for row in db.execute(f'SELECT * FROM {name}')] for name in TABLES}}
 
 
 def restore_data(db, data):
-    if not isinstance(data, dict) or data.get('format') != 'day-enough' or type(data.get('version')) is not int or data['version'] not in (1, 2, 3):
+    if not isinstance(data, dict) or data.get('format') != 'day-enough' or type(data.get('version')) is not int or data['version'] not in (1, 2, 3, 4):
         raise ValueError('不支持的备份版本')
     default = data.get('default_minutes')
     if type(default) is not int or not 0 <= default <= 960:
@@ -52,6 +52,11 @@ def restore_data(db, data):
             columns = [r[1] for r in info]
             numeric = {r[1] for r in info if r[2] == 'INTEGER'}
             for row in rows:
+                if name == 'tasks' and data['version'] < 4:
+                    if not isinstance(row, dict) or 'cycle_end' in row:
+                        raise ValueError('旧版任务字段无效')
+                    rule = scratch.execute('SELECT frequency FROM recurrences WHERE id=?', (row.get('recurrence_id'),)).fetchone()
+                    row['cycle_end'] = cycle_end(rule[0], row.get('occurrence_date', '')) if rule else ''
                 if not isinstance(row, dict) or set(row) != set(columns):
                     raise ValueError(f'{name} 字段不匹配')
                 for col in columns:
@@ -65,9 +70,9 @@ def restore_data(db, data):
                         raise ValueError('文本字段无效')
                     if col in ('id', 'task_id', 'recurrence_id') and str(UUID(val)) != val:
                         raise ValueError('标识格式无效')
-                    if col in ('due_date', 'planned_date', 'occurrence_date') and val == '':
+                    if col in ('due_date', 'planned_date', 'occurrence_date', 'cycle_end') and val == '':
                         pass
-                    elif col in ('due_date', 'day', 'planned_date', 'occurrence_date', 'start_date', 'next_date') and date.fromisoformat(val).isoformat() != val:
+                    elif col in ('due_date', 'day', 'planned_date', 'occurrence_date', 'cycle_end', 'start_date', 'next_date') and date.fromisoformat(val).isoformat() != val:
                         raise ValueError('日期无效')
                     if col in ('created_at', 'updated_at'):
                         datetime.fromisoformat(val)
@@ -75,11 +80,11 @@ def restore_data(db, data):
                     raise ValueError('任务状态和剩余时间不一致')
                 if name == 'tasks':
                     if row['planned_date'] and row['due_date'] and row['planned_date'] > row['due_date']:
-                        raise ValueError('计划日期晚于截止日期')
+                        raise ValueError('计划完成日期晚于截止日期')
                     if row['recurrence_id']:
-                        if not row['planned_date'] or not row['occurrence_date']:
+                        if not row['planned_date'] or not row['occurrence_date'] or not row['cycle_end'] or row['cycle_end'] < row['occurrence_date']:
                             raise ValueError('周期实例缺少日期')
-                    elif row['occurrence_date'] or row['missed']:
+                    elif row['occurrence_date'] or row['missed'] or row['cycle_end']:
                         raise ValueError('普通任务不能包含周期实例标记')
                     if row['missed'] and row['status'] != 'archived':
                         raise ValueError('漏做记录状态无效')
@@ -98,7 +103,7 @@ def restore_data(db, data):
                         raise ValueError('周期日期超出范围')
                     if row['frequency'] not in ('daily', 'weekly', 'monthly') or not 0 <= row['month_day'] <= 31:
                         raise ValueError('周期设置无效')
-                    if next_occurrence(row['frequency'], weekdays, row['month_day'], row['start_date'], row['next_date']) != row['next_date']:
+                    if next_occurrence(row['frequency'], weekdays, row['month_day'], cycle_start(row['frequency'], row['start_date']), row['next_date']) != row['next_date']:
                         raise ValueError('下次日期与周期规则不一致')
                 scratch.execute(f'INSERT INTO {name} ({",".join(columns)}) VALUES ({",".join("?" for _ in columns)})', [row[c] for c in columns])
         # Preserve account/secret/revision; replace only domain data within caller transaction.

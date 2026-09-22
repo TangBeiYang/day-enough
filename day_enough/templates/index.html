@@ -7,8 +7,8 @@
   <meta name="description" content="DayEnough，帮你决定今天做什么、做到多少就够了。">
   <title>DayEnough · 今天，适量就好</title>
   <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
-  <link rel="stylesheet" href="{{ url_for('static', filename='app.css', v='recurrence-window-3') }}">
-  <script src="{{ url_for('static', filename='app.js', v='recurrence-window-3') }}" defer></script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css', v='completion-target-4') }}">
+  <script src="{{ url_for('static', filename='app.js', v='completion-target-4') }}" defer></script>
 </head>
 <body>
   <div id="boot" class="boot" role="status">正在打开 DayEnough…</div>
@@ -35,20 +35,20 @@
     <fieldset id="recurrence-fields" class="recurrence-fields" hidden disabled>
       <legend>重复安排</legend>
       <label for="rule-frequency">重复频率</label><select id="rule-frequency" name="frequency"><option value="daily">每天</option><option value="weekly">每周</option><option value="monthly">每月</option></select>
-      <div id="rule-weekdays" hidden><p class="field-label">计划星期（可多选，每个所选星期生成一次任务）</p><div class="weekday-options">
+      <div id="rule-weekdays" hidden><p class="field-label">计划完成星期（可多选，本周各次任务提前参与推荐）</p><div class="weekday-options">
         <label><input type="checkbox" name="weekdays" value="0">周一</label><label><input type="checkbox" name="weekdays" value="1">周二</label><label><input type="checkbox" name="weekdays" value="2">周三</label><label><input type="checkbox" name="weekdays" value="3">周四</label><label><input type="checkbox" name="weekdays" value="4">周五</label><label><input type="checkbox" name="weekdays" value="5">周六</label><label><input type="checkbox" name="weekdays" value="6">周日</label>
       </div></div>
-      <div id="rule-month" hidden><label for="rule-month-day">每月计划日期</label><select id="rule-month-day" name="month_day"><option value="0">月末</option></select><span class="field-note">当月没有所选日期时，安排在月末。</span></div>
+      <div id="rule-month" hidden><label for="rule-month-day">每月计划完成日期</label><select id="rule-month-day" name="month_day"><option value="0">月末</option></select><span class="field-note">当月没有所选日期时，安排在月末。</span></div>
       <div id="rule-deadline-field" hidden><label for="rule-deadline" id="rule-deadline-label">截止星期（可选）</label><select id="rule-deadline" name="due_day"></select><span class="field-note">取计划日当天或之后最近的所选日期；早于计划日则顺延到下一周或下个月。</span></div>
     </fieldset>
     <div class="form-grid" id="task-timing">
-      <div><label for="task-planned" id="planned-label">计划日期（可选）</label><input id="task-planned" name="planned_date" type="date"><span id="planned-help" class="field-note">从这天起参与推荐；留空则随时可安排。</span></div>
+      <div><label for="task-planned" id="planned-label">计划完成日期（可选）</label><input id="task-planned" name="planned_date" type="date"><span id="planned-help" class="field-note">希望哪天完成；创建后即可参与推荐。</span></div>
       <div id="task-due-field"><label for="task-due">截止日期 <span class="muted">（可选）</span></label><input id="task-due" name="due_date" type="date"><span class="field-note">需要在什么时候之前完成，可以留空。</span></div>
       <div><label for="task-remaining" id="minutes-label">预计还需多少分钟</label><input id="task-remaining" name="remaining_minutes" type="number" min="0" max="600000" step="1" required><span class="field-note">粗略估计就好，之后可以调整。</span></div>
     </div>
     <div id="rule-policy-field" hidden>
       <label for="rule-missed">如果到期还没做完</label><select id="rule-missed" name="missed_policy"><option value="skip">不补做 · 保留记录，不累积欠账</option><option value="carry">保留待办 · 继续推荐，直到完成</option></select>
-      <span class="field-note">有截止日期时，到截止日结束才算漏做；未设截止时，以计划日结束为界。</span>
+      <span class="field-note">有截止日期时，到截止日结束才算漏做；未设截止时，以本日/本周/本月结束为界，超过计划完成日期仍可继续。</span>
       <p id="rule-summary" class="rule-summary" role="status"></p>
       <p id="rule-edit-help" class="field-note">每次生成独立任务，完成一次不会结束整个周期。</p>
     </div>

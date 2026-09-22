@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS tasks (
  planned_date TEXT NOT NULL DEFAULT '',
  recurrence_id TEXT REFERENCES recurrences(id),
  occurrence_date TEXT NOT NULL DEFAULT '',
+ cycle_end TEXT NOT NULL DEFAULT '',
  missed_policy TEXT NOT NULL DEFAULT 'carry' CHECK(missed_policy IN ('skip','carry')),
  missed INTEGER NOT NULL DEFAULT 0 CHECK(missed IN (0,1))
 );

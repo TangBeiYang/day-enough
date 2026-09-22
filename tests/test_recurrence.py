@@ -5,6 +5,8 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from datetime import date
+from day_enough.planner import recommend
 from day_enough.db import connect, init_db
 from day_enough.recurrence import next_occurrence, occurrence_deadline
 from conftest import Browser
@@ -94,6 +96,8 @@ def test_v2_backup_and_database_upgrade(browser, tmp_path):
     add_rule(browser, due_on_planned=True)
     backup = browser.client.get('/api/export').json
     backup['version'] = 2
+    for task in backup['tables']['tasks']:
+        del task['cycle_end']
     for rule in backup['tables']['recurrences']:
         del rule['due_day']
     response = browser.post('/restore', {'backup': backup, 'confirmation': '恢复'})
@@ -124,9 +128,10 @@ def test_v3_deadline_backup_roundtrip_and_invalid_restore(browser):
     assert browser.client.get('/api/export').json == backup
 
 
-def test_ordinary_planned_date_gates_recommendation_and_can_be_cleared(browser, app):
+def test_ordinary_completion_date_is_available_immediately_and_can_be_cleared(browser, app):
     task = browser.add(planned_date='2026-09-16')
-    assert browser.post('/plan', {'budget': 120, 'energy': 'high'}).json['items'] == []
+    assert browser.state()['unplanned_scheduled'] == [task['id']]
+    assert browser.post('/plan', {'budget': 120, 'energy': 'high'}).json['items'][0]['task_id'] == task['id']
     app.config['TODAY'] = '2026-09-16'
     state = browser.state()
     assert state['unplanned_scheduled'] == [task['id']]
@@ -134,7 +139,7 @@ def test_ordinary_planned_date_gates_recommendation_and_can_be_cleared(browser, 
     assert plan['items'][0]['planned_date'] == '2026-09-16'
     response = browser.post('/tasks/' + task['id'], {**task, 'planned_date': '2026-09-17'})
     assert response.status_code == 200
-    assert response.json['items'][0]['status'] == 'skipped'
+    assert response.json['items'][0]['status'] == 'pending'
     updated = response.json['tasks'][0]
     response = browser.post('/tasks/' + task['id'], {**updated, 'planned_date': ''})
     assert response.json['tasks'][0]['planned_date'] == ''
@@ -238,7 +243,7 @@ def test_weekly_multiple_days_and_monthly_short_month(browser, app):
     # Pause weekly generation before advancing several months.
     browser.post('/recurrences/' + rule['id'] + '/status', {'version': rule['version'], 'status': 'paused'})
     monthly = add_rule(browser, title='月末总结', frequency='monthly', month_day=31, planned_date='2027-01-30')
-    assert monthly['next_date'] == '2027-01-31'
+    assert monthly['next_date'] == '2027-02-28'
     app.config['TODAY'] = '2027-03-31'
     dates = {t['occurrence_date'] for t in browser.state()['tasks'] if t['recurrence_id'] == monthly['id']}
     assert dates == {'2027-01-31', '2027-02-28', '2027-03-31'}
@@ -273,7 +278,7 @@ def test_backup_v2_roundtrip_and_invalid_rules(browser):
     task = browser.state()['tasks'][0]
     browser.post('/tasks/' + task['id'] + '/work', {'minutes': 5})
     backup = browser.client.get('/api/export').json
-    assert backup['version'] == 3
+    assert backup['version'] == 4
     response = browser.post('/restore', {'backup': backup, 'confirmation': '恢复'})
     assert response.status_code == 200, response.json
     assert browser.client.get('/api/export').json == backup
@@ -292,7 +297,7 @@ def test_old_json_backup_restores_with_empty_schedule(browser):
     backup['version'] = 1
     del backup['tables']['recurrences']
     for row in backup['tables']['tasks']:
-        for key in ('planned_date', 'recurrence_id', 'occurrence_date', 'missed_policy', 'missed'):
+        for key in ('planned_date', 'recurrence_id', 'occurrence_date', 'missed_policy', 'missed', 'cycle_end'):
             del row[key]
     add_rule(browser)
     response = browser.post('/restore', {'backup': backup, 'confirmation': '恢复'})
@@ -320,6 +325,84 @@ def test_existing_database_migration_preserves_references_and_is_repeatable(tmp_
         assert db.execute('SELECT minutes FROM work_logs').fetchone()[0] == 10
         assert db.execute("SELECT value FROM meta WHERE key='revision'").fetchone()[0] == '17'
         assert list(db.execute('PRAGMA foreign_key_check')) == []
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 3
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 4
+    finally:
+        db.close()
+
+
+@pytest.mark.parametrize('frequency,fields,target,end,next_day,next_target', [
+    ('weekly', {'weekdays': [4]}, '2026-09-18', '2026-09-20', '2026-09-21', '2026-09-25'),
+    ('monthly', {'month_day': 20}, '2026-09-20', '2026-09-30', '2026-10-01', '2026-10-20'),
+])
+def test_cycle_tasks_are_available_early_and_not_refilled_on_completion(browser, app, frequency, fields, target, end, next_day, next_target):
+    add_rule(browser, frequency=frequency, **fields)
+    task = browser.state()['tasks'][0]
+    assert task['planned_date'] == target and task['cycle_end'] == end
+    assert browser.post('/plan', {'budget': 120, 'energy': 'high'}).json['items'][0]['task_id'] == task['id']
+    browser.post('/tasks/' + task['id'], {**task, 'status': 'done'})
+    assert len(browser.state()['tasks']) == 1
+    app.config['TODAY'] = end
+    assert len(browser.state()['tasks']) == 1
+    app.config['TODAY'] = next_day
+    tasks = browser.state()['tasks']
+    assert len(tasks) == 2
+    assert next(t for t in tasks if t['status'] == 'active')['planned_date'] == next_target
+
+
+def test_weekly_targets_survive_planned_day_until_cycle_end(browser, app):
+    rule = add_rule(browser, frequency='weekly', weekdays=[0, 2, 4])
+    tasks = browser.state()['tasks']
+    assert len(tasks) == 3
+    first = next(t for t in tasks if t['planned_date'] == '2026-09-14')
+    browser.post('/tasks/' + first['id'] + '/work', {'minutes': 5})
+    app.config['TODAY'] = '2026-09-20'
+    assert all(t['status'] == 'active' for t in browser.state()['tasks'])
+    # Frequency edits must not shorten the saved instances' cycle.
+    result = browser.post('/recurrences/' + rule['id'], rule_payload(version=rule['version'], frequency='daily'))
+    assert next(t for t in result.json['tasks'] if t['id'] == first['id'])['status'] == 'active'
+    app.config['TODAY'] = '2026-09-21'
+    old = next(t for t in browser.state()['tasks'] if t['id'] == first['id'])
+    assert old['missed'] == 1 and old['worked_minutes'] == 5
+
+
+def test_new_monthly_task_with_elapsed_target_still_enters_current_cycle(browser, app):
+    add_rule(browser, frequency='monthly', month_day=5)
+    task = browser.state()['tasks'][0]
+    assert task['planned_date'] == '2026-09-05' and task['status'] == 'active'
+    plan = browser.post('/plan', {'budget': 120, 'energy': 'high'}).json
+    assert '已超过计划完成日期' in plan['items'][0]['reason']
+
+
+def test_planned_completion_date_changes_priority_and_allocation(browser):
+    later = browser.add(title='晚完成', planned_date='2026-09-17', due_date='', remaining_minutes=120)
+    sooner = browser.add(title='早完成', planned_date='2026-09-15', due_date='', remaining_minutes=120)
+    result = recommend([later, sooner], date(2026, 9, 14), 120, 'high')
+    assert [item['task_id'] for item in result] == [sooner['id'], later['id']]
+    assert result[0]['planned_minutes'] == 60 and result[1]['planned_minutes'] == 30
+
+
+def test_v3_backup_upgrades_cycle_snapshot(browser):
+    add_rule(browser, frequency='weekly', weekdays=[0, 4])
+    backup = browser.client.get('/api/export').json
+    backup['version'] = 3
+    for task in backup['tables']['tasks']:
+        del task['cycle_end']
+    result = browser.post('/restore', {'backup': backup, 'confirmation': '恢复'})
+    assert result.status_code == 200
+    assert all(t['cycle_end'] == '2026-09-20' for t in result.json['tasks'])
+
+
+def test_v3_database_migration_preserves_history_and_adds_cycle_end(tmp_path):
+    db = connect(str(tmp_path / 'v3.sqlite'))
+    try:
+        schema = Path(__file__).parents[1].joinpath('day_enough/schema.sql').read_text()
+        db.executescript('\n'.join(line for line in schema.splitlines() if not line.startswith(' cycle_end ')))
+        db.execute("INSERT INTO recurrences(id,title,consequence,energy,minutes,frequency,weekdays,start_date,next_date,created_at,updated_at) VALUES ('rule','周任务','medium','medium',20,'weekly','[0]','2026-09-14','2026-09-21','stamp','stamp')")
+        db.execute("INSERT INTO tasks(id,title,due_date,consequence,energy,remaining_minutes,worked_minutes,status,created_at,updated_at,planned_date,recurrence_id,occurrence_date,missed) VALUES ('task','旧漏做','','medium','medium',15,5,'archived','stamp','stamp','2026-09-14','rule','2026-09-14',1)")
+        init_db(db)
+        init_db(db)
+        task = dict(db.execute('SELECT * FROM tasks').fetchone())
+        assert task['cycle_end'] == '2026-09-20'
+        assert task['missed'] == 1 and task['status'] == 'archived' and task['worked_minutes'] == 5
     finally:
         db.close()

@@ -12,17 +12,21 @@ def days_left(task, today):
     return (date.fromisoformat(task['due_date']) - today).days
 
 
+def target_days(task, today):
+    target = task.get('planned_date') or task['due_date']
+    return (date.fromisoformat(target) - today).days if target else None
+
+
 def recommend(tasks, today, budget, energy, already_worked=0, high_worked=0, excluded=()):
     available = max(0, budget - already_worked)
     high_available = max(0, int(budget * ENERGY_SHARE[energy]) - high_worked)
     candidates = [t for t in tasks if t['status'] == 'active'
-                  and t['remaining_minutes'] > 0 and t['id'] not in excluded
-                  and (not t.get('planned_date') or t['planned_date'] <= today.isoformat())]
+                  and t['remaining_minutes'] > 0 and t['id'] not in excluded]
 
     def urgency(t):
-        remaining_days = days_left(t, today)
+        remaining_days = target_days(t, today)
         if remaining_days is None:
-            return {'low': 1, 'medium': 1.5, 'high': 2}[t['consequence']] + (60 if t.get('planned_date') else 0)
+            return {'low': 1, 'medium': 1.5, 'high': 2}[t['consequence']]
         days = max(1, remaining_days + 1)
         # Daily effort pressure lets long projects compete before the last day.
         pressure = t['remaining_minutes'] / days
@@ -35,8 +39,9 @@ def recommend(tasks, today, budget, energy, already_worked=0, high_worked=0, exc
         if available <= 0:
             break
         days = days_left(task, today)
-        share = (ceil(task['remaining_minutes'] / max(1, days + 1) / 15) * 15
-                 if days is not None else 30)
+        goal_days = target_days(task, today)
+        share = (ceil(task['remaining_minutes'] / max(1, goal_days + 1) / 15) * 15
+                 if goal_days is not None else 30)
         # At least a meaningful short session, unless the task has less remaining.
         target = max(30, share)
         if task.get('recurrence_id'):
@@ -52,7 +57,8 @@ def recommend(tasks, today, budget, energy, already_worked=0, high_worked=0, exc
             deadline = '已过截止日期' if days < 0 else ('今天截止' if days == 0 else f'距截止还有 {days} 天')
             reason = f'{deadline} · 后果{LABELS[task["consequence"]]} · 按剩余工作量分配'
         if task.get('planned_date'):
-            reason = f'计划 {task["planned_date"]} · ' + reason
+            label = '已超过计划完成日期' if task['planned_date'] < today.isoformat() else '计划完成'
+            reason = f'{label} {task["planned_date"]} · ' + reason
         result.append({'task_id': task['id'], 'planned_minutes': minutes, 'reason': reason})
         available -= minutes
         if task['energy'] == 'high':
