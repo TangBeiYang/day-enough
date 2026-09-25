@@ -7,8 +7,8 @@
   <meta name="description" content="DayEnough，帮你决定今天做什么、做到多少就够了。">
   <title>DayEnough · 今天，适量就好</title>
   <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
-  <link rel="stylesheet" href="{{ url_for('static', filename='app.css', v='task-overview-5') }}">
-  <script src="{{ url_for('static', filename='app.js', v='task-overview-5') }}" defer></script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css', v='manual-plan-6') }}">
+  <script src="{{ url_for('static', filename='app.js', v='manual-plan-6') }}" defer></script>
 </head>
 <body>
   <div id="boot" class="boot" role="status">正在打开 DayEnough…</div>
@@ -58,6 +58,16 @@
     </div><label class="check-label" id="rule-due-field" hidden><input id="rule-due" name="due_on_planned" type="checkbox">计划当天必须完成（同时作为截止日期）</label>
     <label for="task-step">具体下一步 <span class="muted">（可选）</span></label><textarea id="task-step" name="next_step" rows="2" maxlength="500" placeholder="例如：先整理三篇参考文献"></textarea></details>
     <p class="form-error error-text" role="alert"></p><div class="dialog-actions"><button type="button" class="button ghost" data-close>取消</button><button id="task-save" type="submit" class="button primary">保存任务</button></div>
+  </form></dialog>
+  <dialog id="manual-dialog"><form id="manual-form">
+    <div class="dialog-heading"><div><p class="eyebrow">YOUR DAY, YOUR WAY</p><h2>自己安排今天</h2></div><button type="button" class="icon-button" data-close aria-label="关闭">×</button></div>
+    <p class="muted">勾选今天想做的任务，填写还想投入的分钟数，并调整顺序。已记录的投入、已完成和跳过的份额会保留。</p>
+    <div class="form-grid"><div><label for="manual-budget">今日时间预算（分钟）</label><input id="manual-budget" name="budget" type="number" min="0" max="960" step="1" required></div><div><label for="manual-energy">此刻精力</label><select id="manual-energy" name="energy"><option value="low">有点累</option><option value="medium">还不错</option><option value="high">很充沛</option></select></div></div>
+    <label for="manual-search">挑选任务</label><input id="manual-search" type="search" placeholder="搜索普通任务或当前周期任务">
+    <div id="manual-list" class="manual-list"></div>
+    <p id="manual-summary" class="manual-summary" role="status"></p>
+    <p id="manual-warning" class="manual-warning" role="status" hidden></p>
+    <p class="form-error error-text" role="alert"></p><div class="dialog-actions"><button type="button" class="button ghost" data-close>取消</button><button type="submit" class="button primary">保存今日安排</button></div>
   </form></dialog>
   <dialog id="work-dialog"><form id="work-form"><div class="dialog-heading"><div><p class="eyebrow">PROGRESS COUNTS</p><h2>记下这次推进</h2></div><button type="button" class="icon-button" data-close aria-label="关闭">×</button></div><p id="work-task-title"></p><label for="work-minutes">这次投入了多少分钟？</label><input id="work-minutes" name="minutes" type="number" min="1" max="960" step="1" required><p class="muted">会从任务的剩余估计中扣除。若实际还需要更多时间，可以在任务中调整。</p><p class="form-error error-text" role="alert"></p><div class="dialog-actions"><button type="button" class="button ghost" data-close>取消</button><button type="submit" class="button primary">记录进展</button></div></form></dialog>
   <dialog id="confirm-dialog"><form id="confirm-form"><div class="dialog-heading"><h2 id="confirm-title"></h2><button type="button" class="icon-button" data-close aria-label="关闭">×</button></div><p id="confirm-description" class="muted"></p><div id="restore-confirm-field" hidden><label id="confirm-word-label" for="restore-word">输入「恢复」以确认</label><input id="restore-word" name="confirmation" autocomplete="off"></div><p class="form-error error-text" role="alert"></p><div class="dialog-actions"><button type="button" class="button ghost" data-close>取消</button><button id="confirm-submit" type="submit" class="button primary">确认</button></div></form></dialog>

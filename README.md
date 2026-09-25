@@ -14,6 +14,7 @@ DayEnough is a desktop-first personal web app. It stores data on one server so t
 - Optional planned dates for ordinary tasks; daily, weekly, and monthly recurring tasks with independent progress for each occurrence.
 - Track estimated remaining time and actual time spent.
 - Generate a daily plan from deadlines, consequences, remaining effort, available time, and current energy.
+- Arrange today's tasks yourself, set minutes and order, and save even when the total exceeds your budget after a clear warning.
 - Record partial progress, complete a daily share, skip an item, reorder the plan, or explicitly regenerate it.
 - Keep the daily plan stable: completing work never adds more tasks automatically.
 - Protect data against stale cross-device edits and duplicate submissions.
@@ -42,7 +43,7 @@ The Flask development server is intended only for local use. See the [deployment
 ## Daily workflow
 
 1. Add a task and estimate how many minutes remain. A deadline is optional; open-ended projects can be left undated.
-2. Set today's available time and energy, then generate a plan.
+2. Set today's available time and energy, then generate a plan or choose **Arrange it myself** to select tasks, minutes, and order.
 3. Use **Record part** for partial work or **Complete today's share** when the suggested share is done.
 4. Correct the remaining-time estimate from the task list when reality differs.
 5. Stop when today's shares are handled. New or edited tasks do not expand the plan until you explicitly regenerate it.
@@ -50,6 +51,8 @@ The Flask development server is intended only for local use. See the [deployment
 Filled deadlines use the end of that date in the `Asia/Shanghai` timezone. Undated tasks can still be recommended, but they do not produce deadline-risk warnings. Energy is a rough limit on high-effort work rather than a medical or physiological measure.
 
 Regenerating a plan accounts for time already recorded and preserves completed or skipped shares. Skipping applies only to the current day. Future capacity currently assumes the same default available time every day, including weekends, and medium energy. Deadline warnings are estimates, not guarantees.
+
+Manual planning keeps recorded work and handled shares. It warns when recorded work plus remaining scheduled minutes exceeds today's budget, but you can still save. The automatic planner continues to respect its time and energy limits.
 
 ## Planned dates and recurring tasks
 

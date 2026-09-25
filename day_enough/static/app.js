@@ -127,7 +127,7 @@ function todayPage() {
   body = scheduledNotice + body;
   return intro('MAKE ROOM FOR WHAT MATTERS', '今天，适量就好。', '把重要的事往前推一点，也给自己留一点余地。', `<span class="day-stamp">${plan ? '◉ 今日安排已保存' : '○ 今天还未安排'}</span>`) +
     `<div class="today-layout"><section><div class="card summary"><div><span class="stat-label">今日时间预算</span><span class="stat-value">${budget}<span class="stat-unit">分钟</span></span></div><div><span class="stat-label">已记录投入</span><span class="stat-value">${state.worked_minutes}<span class="stat-unit">分钟</span></span></div><div><span class="stat-label">安排中还剩</span><span class="stat-value">${state.remaining_planned}<span class="stat-unit">分钟</span></span></div></div><div class="section-heading"><h2>今天先做这些</h2><span>${pending.length} 项待推进${done ? ` · ${done} 项已处理` : ''}</span></div>${body}<p class="list-note">完成「今日份额」会按安排分钟记录投入，整个任务可以继续留到明天。</p></section>
-    <aside class="today-aside"><form id="plan-form" class="card plan-panel"><div class="panel-title"><span aria-hidden="true">◷</span><h3>今天的节奏</h3></div><p>不用理想状态，就按现在的你。</p><label for="plan-budget">今天有多少可支配时间？</label><div class="input-with-unit"><input id="plan-budget" name="budget" type="number" min="0" max="960" step="1" value="${budget}" required><span>分钟</span></div><fieldset><legend>此刻的精力怎么样？</legend><div class="energy-options">${[['low','◡','有点累'],['medium','◒','还不错'],['high','☀','很充沛']].map(([val,icon,label])=>`<label class="energy-option"><input type="radio" name="energy" value="${val}" ${(plan?.energy || 'medium')===val?'checked':''}><span><b aria-hidden="true">${icon}</b>${label}</span></label>`).join('')}</div></fieldset><p class="form-error error-text" role="alert"></p><button class="button primary wide" type="submit">${plan ? '重新安排今天' : '生成今日安排'} <span aria-hidden="true">↗</span></button><p class="plan-help">${plan ? '已投入时间会计入预算；已完成和跳过的份额保留。' : '高消耗任务会随精力状态适量安排，剩余时间不必填满。'}</p></form><div class="rest-note"><p class="eyebrow">A GENTLE REMINDER</p><h3>做得刚刚好，<br>也是一种进步。</h3><p>计划是为了帮你减轻负担。完成今天的份额，就可以安心停下。</p></div>${state.warnings.length ? `<section class="warnings"><h3>关于截止日期的小提醒</h3><ul>${state.warnings.map(w=>`<li>${esc(w)}</li>`).join('')}</ul></section>` : ''}</aside></div>`;
+    <aside class="today-aside"><form id="plan-form" class="card plan-panel"><div class="panel-title"><span aria-hidden="true">◷</span><h3>今天的节奏</h3></div><p>不用理想状态，就按现在的你。</p><label for="plan-budget">今天有多少可支配时间？</label><div class="input-with-unit"><input id="plan-budget" name="budget" type="number" min="0" max="960" step="1" value="${budget}" required><span>分钟</span></div><fieldset><legend>此刻的精力怎么样？</legend><div class="energy-options">${[['low','◡','有点累'],['medium','◒','还不错'],['high','☀','很充沛']].map(([val,icon,label])=>`<label class="energy-option"><input type="radio" name="energy" value="${val}" ${(plan?.energy || 'medium')===val?'checked':''}><span><b aria-hidden="true">${icon}</b>${label}</span></label>`).join('')}</div></fieldset><p class="form-error error-text" role="alert"></p><button class="button primary wide" type="submit">${plan ? '重新安排今天' : '生成今日安排'} <span aria-hidden="true">↗</span></button><button class="button ghost wide manual-launch" type="button" data-action="manual-plan">自己安排</button><p class="plan-help">${plan ? '已投入时间会计入预算；已完成和跳过的份额保留。' : '高消耗任务会随精力状态适量安排，剩余时间不必填满。'}</p></form><div class="rest-note"><p class="eyebrow">A GENTLE REMINDER</p><h3>做得刚刚好，<br>也是一种进步。</h3><p>计划是为了帮你减轻负担。完成今天的份额，就可以安心停下。</p></div>${state.warnings.length ? `<section class="warnings"><h3>今日的小提醒</h3><ul>${state.warnings.map(w=>`<li>${esc(w)}</li>`).join('')}</ul></section>` : ''}</aside></div>`;
 }
 function libraryCards() {
   if (filter === 'overview') return overviewCards();
@@ -262,6 +262,35 @@ function workDialog(task) {
   $('#work-minutes').value = Math.min(25, task.remaining_minutes, item ? Math.max(1,item.planned_minutes-item.done_minutes) : 25);
   openDialog('#work-dialog', {...context(), taskId:task.id});
 }
+function manualRows() { return $$('.manual-row', $('#manual-list')); }
+function updateManualSummary() {
+  const rows = manualRows();
+  const chosen = rows.filter(row => $('.manual-check', row).checked);
+  for (const row of rows) $('.manual-minutes', row).disabled = !$('.manual-check', row).checked;
+  const minutes = chosen.reduce((sum, row) => sum + (Number($('.manual-minutes', row).value) || 0), 0);
+  const budget = Number($('#manual-budget').value) || 0;
+  const total = state.worked_minutes + minutes;
+  $('#manual-summary').textContent = `已选 ${chosen.length} 项 · 待投入 ${minutes} 分钟 · 今日已投入 ${state.worked_minutes} 分钟 · 预算 ${budget} 分钟`;
+  const warning = $('#manual-warning');
+  warning.hidden = total <= budget;
+  warning.textContent = total > budget ? `比今日预算多 ${total-budget} 分钟。可以调整份额或预算，也可以按自己的判断直接保存。` : '';
+}
+function manualDialog() {
+  const planForm = $('#plan-form');
+  $('#manual-budget').value = $('#plan-budget').value;
+  $('#manual-energy').value = $('input[name="energy"]:checked', planForm).value;
+  $('#manual-search').value = '';
+  const pending = state.items.filter(item => item.status === 'pending' && item.task_status === 'active');
+  const ordered = [...pending.map(item => state.tasks.find(task => task.id === item.task_id)),
+    ...state.tasks.filter(task => task.status === 'active' && task.remaining_minutes > 0 && !pending.some(item => item.task_id === task.id))].filter(Boolean);
+  $('#manual-list').innerHTML = ordered.length ? ordered.map(task => {
+    const item = pending.find(i => i.task_id === task.id);
+    const minutes = item ? Math.min(task.remaining_minutes, Math.max(1, item.planned_minutes-item.done_minutes)) : Math.min(30, task.remaining_minutes);
+    return `<div class="manual-row" data-id="${esc(task.id)}"><label class="manual-task"><input class="manual-check" type="checkbox" ${item?'checked':''}><span><strong>${esc(task.title)}</strong><small>${task.recurrence_id?'周期任务 · 本次':'普通任务'} · 还需约 ${task.remaining_minutes} 分钟${task.planned_date ? ` · 计划 ${esc(task.planned_date)}` : ''}</small></span></label><div class="manual-row-tools"><label>安排 <input class="manual-minutes" type="number" min="1" max="${task.remaining_minutes}" step="1" value="${minutes}" ${item?'':'disabled'} required> 分钟</label><button type="button" class="link-button" data-manual-move="up" aria-label="上移 ${esc(task.title)}">↑</button><button type="button" class="link-button" data-manual-move="down" aria-label="下移 ${esc(task.title)}">↓</button></div></div>`;
+  }).join('') : '<p class="muted">目前没有可安排的任务。可以先在任务总览添加任务。</p>';
+  updateManualSummary();
+  openDialog('#manual-dialog');
+}
 async function boot() {
   const session = await api('/session'); csrfToken = session.csrf;
   $('#boot').hidden = true; $('#login-screen').hidden = session.authenticated; $('#app').hidden = !session.authenticated;
@@ -282,6 +311,14 @@ async function logout() { await api('/logout',{}); await boot(); }
 $('#logout-button').addEventListener('click',()=>run(logout));
 window.addEventListener('hashchange',()=>{if(state)render();});
 document.addEventListener('click',event=>{
+  const move = event.target.closest('[data-manual-move]');
+  if (move && !busy) {
+    const row = move.closest('.manual-row'), sibling = move.dataset.manualMove === 'up' ? row.previousElementSibling : row.nextElementSibling;
+    if (sibling) {
+      if (move.dataset.manualMove === 'up') sibling.before(row); else sibling.after(row);
+    }
+    return;
+  }
   const kindButton = event.target.closest('[data-task-kind]');
   if (kindButton && !kindButton.disabled) {
     $('#task-kind').value = kindButton.dataset.taskKind;
@@ -293,6 +330,7 @@ document.addEventListener('click',event=>{
   const {action,id,value}=button.dataset;
   const task=state?.tasks.find(t=>t.id===id);
   if(action==='new-task') return taskDialog();
+  if(action==='manual-plan') return manualDialog();
   if(action==='new-rule') return taskDialog(null, null, true);
   if(action==='edit-rule') return taskDialog(null, state.recurrences.find(r=>r.id===id));
   if(action==='toggle-rule') {
@@ -342,10 +380,16 @@ document.addEventListener('click',event=>{
   }
 });
 document.addEventListener('input',event=>{
+  if(event.target.id==='manual-search') {
+    const query=event.target.value.trim().toLowerCase();
+    manualRows().forEach(row=>row.hidden=!row.textContent.toLowerCase().includes(query));
+  }
+  if(event.target.id==='manual-budget'||event.target.classList.contains('manual-minutes')) updateManualSummary();
   if(event.target.closest('#task-form')) updateRuleSummary();
   if(event.target.id==='task-search') {search=event.target.value;$('#library-results').innerHTML=libraryCards();}
 });
 document.addEventListener('change',event=>{
+  if(event.target.classList.contains('manual-check')) updateManualSummary();
   if(event.target.id==='task-kind'||event.target.id==='rule-frequency') {updateTaskKind();return;}
   if(event.target.closest('#task-form')) updateRuleSummary();
   if(event.target.id!=='backup-file'||!event.target.files[0]) return;
@@ -385,6 +429,11 @@ document.addEventListener('submit',event=>{
     if(state.plan) return confirm('重新安排今天？','会依据当前任务和状态重新分配剩余时间。已记录的投入、已完成和跳过的份额会保留。',async()=>{await mutate('/plan',body,base);toast('今天的安排已更新');});
     return run(async()=>{await mutate('/plan',body,base);toast('今日安排已保存');},form);
   }
+  if(form.id==='manual-form') return run(async()=>{
+    const items=manualRows().filter(row=>$('.manual-check',row).checked).map(row=>({task_id:row.dataset.id,minutes:Number($('.manual-minutes',row).value)}));
+    await mutate('/plan/manual',{budget:Number(values.budget),energy:values.energy,items},base);
+    $('#manual-dialog').close();toast('自己安排的今日计划已保存');
+  },form);
   if(form.id==='settings-form') return run(async()=>{await mutate('/settings',{default_minutes:Number(values.default_minutes)},base);toast('默认时间已保存');},form);
   if(form.id==='password-form') return run(async()=>{await mutate('/password',values,base);toast('密码已更新，其他设备需要重新登录');},form);
   if(form.id==='confirm-form') return run(async()=>{await confirmAction(base);$('#confirm-dialog').close();},form);

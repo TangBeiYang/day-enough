@@ -253,13 +253,25 @@ def main():
                 page.locator('#task-save').scroll_into_view_if_needed()
                 expect(page.locator('#task-save')).to_be_in_viewport()
                 page.locator('#task-dialog [data-close]').first.click()
+                page.get_by_role('link',name='今天',exact=True).click()
+                page.get_by_role('button',name='自己安排').click()
+                expect(page.locator('#manual-dialog')).to_be_visible()
+                assert page.locator('.manual-row').count() > 0
+                page.locator('#manual-budget').fill('0')
+                page.locator('.manual-check').first.check()
+                page.locator('.manual-minutes').first.fill('1')
+                expect(page.locator('#manual-warning')).to_contain_text('可以按自己的判断直接保存')
+                page.screenshot(path=str(screenshots/'manual-plan-mobile.png'),full_page=True)
+                page.get_by_role('button',name='保存今日安排').click()
+                expect(page.locator('#manual-dialog')).not_to_be_visible()
+                expect(page.locator('.today-aside .warnings')).to_contain_text('超过今日预算')
                 page.screenshot(path=str(screenshots/'mobile.png'),full_page=True)
                 assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth'), 'Mobile horizontal overflow'
                 assert not errors, errors
                 browser.close()
         finally:
             server.shutdown();thread.join(timeout=5)
-    print('Browser smoke passed: task overview, set aside, ordinary/occurrence deletion, recurrence history, v5 restore, mobile, existing workflows; no JS/CSP errors.')
+    print('Browser smoke passed: manual over-budget plan, task overview, deletion, recurrence history, v5 restore, mobile, existing workflows; no JS/CSP errors.')
 
 
 if __name__=='__main__':

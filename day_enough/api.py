@@ -88,8 +88,9 @@ def snapshot(db):
     warnings = risks(tasks, date.fromisoformat(day), default,
                      plan['budget'] if plan else default, totals[0],
                      plan['energy'] if plan else 'medium', totals[1], allocations) if tasks else []
-    if plan and totals[0] > plan['budget']:
-        warnings.insert(0, '今天记录的投入已超过时间预算，可以收工了。')
+    if plan and totals[0] + sum(allocations.values()) > plan['budget']:
+        over = totals[0] + sum(allocations.values()) - plan['budget']
+        warnings.insert(0, f'已投入与待做安排合计超过今日预算 {over} 分钟；你可以按自己的节奏决定。')
     recurrences = [dict(row) for row in db.execute('SELECT * FROM recurrences ORDER BY created_at DESC,id')]
     for rule in recurrences:
         rule['weekdays'] = json.loads(rule['weekdays'])
@@ -425,6 +426,59 @@ def make_plan(db, data):
         else:
             db.execute('INSERT INTO items(id,day,task_id,planned_minutes,reason,position) VALUES (?,?,?,?,?,?)',
                        (str(uuid4()), day, pick['task_id'], pick['planned_minutes'], pick['reason'], position))
+
+
+@bp.post('/plan/manual')
+@mutation
+def make_manual_plan(db, data):
+    budget = integer(data.get('budget'), '今日可用分钟', 0, 960)
+    energy = data.get('energy')
+    if energy not in LEVELS:
+        abort(400, '请选择今日状态。')
+    choices = data.get('items')
+    if not isinstance(choices, list) or len(choices) > 500:
+        abort(400, '手动安排列表无效。')
+    seen = set()
+    picks = []
+    for choice in choices:
+        if not isinstance(choice, dict) or set(choice) != {'task_id', 'minutes'}:
+            abort(400, '手动安排内容无效。')
+        task_id = choice['task_id']
+        if not isinstance(task_id, str) or task_id in seen:
+            abort(400, '同一任务只能安排一次。')
+        seen.add(task_id)
+        task = task_by_id(db, task_id)
+        if task['status'] != 'active' or task['remaining_minutes'] <= 0:
+            abort(400, '只能安排待推进的任务。')
+        minutes = integer(choice['minutes'], '手动安排分钟', 1, 600000)
+        if minutes > task['remaining_minutes']:
+            abort(400, '安排分钟不能超过任务剩余估计。')
+        picks.append((task_id, minutes))
+    day = today()
+    db.execute('''INSERT INTO plans VALUES (?,?,?,?) ON CONFLICT(day)
+                  DO UPDATE SET budget=excluded.budget,energy=excluded.energy''', (day, budget, energy, now()))
+    previous = {row['task_id']: dict(row) for row in db.execute('SELECT * FROM items WHERE day=? ORDER BY position,id', (day,))}
+    selected = set(seen)
+    for task_id, item in previous.items():
+        if task_id in selected or item['status'] != 'pending':
+            continue
+        if item['done_minutes']:
+            db.execute("UPDATE items SET planned_minutes=done_minutes,status='done' WHERE id=?", (item['id'],))
+        else:
+            db.execute('DELETE FROM items WHERE id=?', (item['id'],))
+    for position, (task_id, minutes) in enumerate(picks):
+        item = previous.get(task_id)
+        reason = '自己安排 · 按自己的节奏推进'
+        if item:
+            db.execute('''UPDATE items SET planned_minutes=done_minutes+?,status='pending',
+                          reason=?,position=? WHERE id=?''', (minutes, reason, position, item['id']))
+        else:
+            db.execute('''INSERT INTO items(id,day,task_id,planned_minutes,reason,position)
+                          VALUES (?,?,?,?,?,?)''', (str(uuid4()), day, task_id, minutes, reason, position))
+    kept = [item for item in previous.values() if item['task_id'] not in selected and
+            (item['status'] in ('done', 'skipped') or item['done_minutes'] > 0)]
+    for position, item in enumerate(kept, start=len(picks)):
+        db.execute('UPDATE items SET position=? WHERE id=?', (position, item['id']))
 
 
 @bp.post('/items/<item_id>/skip')
