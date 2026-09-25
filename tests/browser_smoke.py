@@ -262,6 +262,11 @@ def main():
                 page.locator('.manual-minutes').first.fill('1')
                 expect(page.locator('#manual-warning')).to_contain_text('可以按自己的判断直接保存')
                 page.screenshot(path=str(screenshots/'manual-plan-mobile.png'),full_page=True)
+                assert page.evaluate("document.querySelector('#manual-dialog').scrollHeight <= document.querySelector('#manual-dialog').clientHeight + 2"), 'Manual dialog should not scroll outside the task list'
+                page.set_viewport_size({'width':725,'height':935})
+                assert page.evaluate("document.querySelector('#manual-dialog').scrollHeight <= document.querySelector('#manual-dialog').clientHeight + 2"), 'Desktop manual dialog should not have an outer scrollbar'
+                assert page.evaluate("document.querySelector('#manual-list').scrollHeight > document.querySelector('#manual-list').clientHeight"), 'Task list should remain scrollable'
+                page.screenshot(path=str(screenshots/'manual-plan-desktop.png'),full_page=True)
                 page.get_by_role('button',name='保存今日安排').click()
                 expect(page.locator('#manual-dialog')).not_to_be_visible()
                 expect(page.locator('.today-aside .warnings')).to_contain_text('超过今日预算')
