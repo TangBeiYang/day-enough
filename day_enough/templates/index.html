@@ -7,8 +7,8 @@
   <meta name="description" content="DayEnough，帮你决定今天做什么、做到多少就够了。">
   <title>DayEnough · 今天，适量就好</title>
   <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
-  <link rel="stylesheet" href="{{ url_for('static', filename='app.css', v='completion-target-4') }}">
-  <script src="{{ url_for('static', filename='app.js', v='completion-target-4') }}" defer></script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css', v='task-overview-5') }}">
+  <script src="{{ url_for('static', filename='app.js', v='task-overview-5') }}" defer></script>
 </head>
 <body>
   <div id="boot" class="boot" role="status">正在打开 DayEnough…</div>
@@ -17,7 +17,7 @@
     <div class="login-panel"><form id="login-form" class="login-form"><p class="eyebrow">WELCOME BACK</p><h2>回到自己的节奏</h2><p class="muted">登录后，在不同电脑上接着推进。</p><label for="login-password">个人密码</label><input id="login-password" name="password" type="password" autocomplete="current-password" required maxlength="256" placeholder="输入你的密码"><p id="login-error" class="error-text" role="alert"></p><button class="button primary wide" type="submit">进入我的一天 <span aria-hidden="true">↗</span></button><p id="setup-notice" class="muted" hidden>尚未设置个人密码，请按项目 README 完成初始化。</p></form></div>
   </section>
   <div id="app" class="app-shell" hidden>
-    <aside class="sidebar"><a href="#today" class="brand"><span class="brand-mark">d.</span> DayEnough</a><p class="sidebar-caption">把今天安排得刚刚好</p><nav aria-label="主导航"><a href="#today" data-page="today"><span aria-hidden="true">◷</span> 今天</a><a href="#tasks" data-page="tasks"><span aria-hidden="true">▤</span> 我的任务 <span id="task-count" class="count">0</span></a><a href="#settings" data-page="settings"><span aria-hidden="true">⚙</span> 设置</a></nav><div class="sidebar-note"><div class="note-symbol" aria-hidden="true">✳</div><p>一步一步，<br>也在向前。</p><span>你的精力，同样值得被照顾。</span></div><div class="sidebar-bottom"><span class="status-dot" aria-hidden="true"></span> 个人空间<button id="logout-button" class="link-button">退出</button></div></aside>
+    <aside class="sidebar"><a href="#today" class="brand"><span class="brand-mark">d.</span> DayEnough</a><p class="sidebar-caption">把今天安排得刚刚好</p><nav aria-label="主导航"><a href="#today" data-page="today"><span aria-hidden="true">◷</span> 今天</a><a href="#tasks" data-page="tasks"><span aria-hidden="true">▤</span> 任务总览 <span id="task-count" class="count">0</span></a><a href="#settings" data-page="settings"><span aria-hidden="true">⚙</span> 设置</a></nav><div class="sidebar-note"><div class="note-symbol" aria-hidden="true">✳</div><p>一步一步，<br>也在向前。</p><span>你的精力，同样值得被照顾。</span></div><div class="sidebar-bottom"><span class="status-dot" aria-hidden="true"></span> 个人空间<button id="logout-button" class="link-button">退出</button></div></aside>
     <div class="workspace"><header class="topbar"><span id="today-date"></span><div><span id="sync-status" class="sync-status" role="status">已读取最新数据</span><button id="refresh-button" class="button small ghost">↻ 刷新</button><button data-action="new-task" class="button small primary">＋ 新建任务</button></div></header>
       <div id="global-error" class="global-error" role="alert" hidden></div>
       <main id="main-content"></main>
@@ -60,7 +60,7 @@
     <p class="form-error error-text" role="alert"></p><div class="dialog-actions"><button type="button" class="button ghost" data-close>取消</button><button id="task-save" type="submit" class="button primary">保存任务</button></div>
   </form></dialog>
   <dialog id="work-dialog"><form id="work-form"><div class="dialog-heading"><div><p class="eyebrow">PROGRESS COUNTS</p><h2>记下这次推进</h2></div><button type="button" class="icon-button" data-close aria-label="关闭">×</button></div><p id="work-task-title"></p><label for="work-minutes">这次投入了多少分钟？</label><input id="work-minutes" name="minutes" type="number" min="1" max="960" step="1" required><p class="muted">会从任务的剩余估计中扣除。若实际还需要更多时间，可以在任务中调整。</p><p class="form-error error-text" role="alert"></p><div class="dialog-actions"><button type="button" class="button ghost" data-close>取消</button><button type="submit" class="button primary">记录进展</button></div></form></dialog>
-  <dialog id="confirm-dialog"><form id="confirm-form"><div class="dialog-heading"><h2 id="confirm-title"></h2><button type="button" class="icon-button" data-close aria-label="关闭">×</button></div><p id="confirm-description" class="muted"></p><div id="restore-confirm-field" hidden><label for="restore-word">输入「恢复」以确认替换</label><input id="restore-word" name="confirmation" autocomplete="off"></div><p class="form-error error-text" role="alert"></p><div class="dialog-actions"><button type="button" class="button ghost" data-close>取消</button><button id="confirm-submit" type="submit" class="button primary">确认</button></div></form></dialog>
+  <dialog id="confirm-dialog"><form id="confirm-form"><div class="dialog-heading"><h2 id="confirm-title"></h2><button type="button" class="icon-button" data-close aria-label="关闭">×</button></div><p id="confirm-description" class="muted"></p><div id="restore-confirm-field" hidden><label id="confirm-word-label" for="restore-word">输入「恢复」以确认</label><input id="restore-word" name="confirmation" autocomplete="off"></div><p class="form-error error-text" role="alert"></p><div class="dialog-actions"><button type="button" class="button ghost" data-close>取消</button><button id="confirm-submit" type="submit" class="button primary">确认</button></div></form></dialog>
   <div id="toast" class="toast" role="status" hidden></div>
 </body>
 </html>

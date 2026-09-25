@@ -78,7 +78,7 @@ def snapshot(db):
     plan_row = db.execute('SELECT * FROM plans WHERE day=?', (day,)).fetchone()
     plan = dict(plan_row) if plan_row else None
     items = [dict(row) for row in db.execute('''SELECT i.*, t.title, t.due_date, t.energy,
-        t.planned_date, t.recurrence_id, t.occurrence_date,
+        t.planned_date, t.recurrence_id, t.occurrence_date, t.missed,
         t.remaining_minutes, t.next_step, t.status AS task_status
         FROM items i JOIN tasks t ON t.id=i.task_id WHERE i.day=? ORDER BY i.position,i.id''', (day,))]
     totals = db.execute("SELECT COALESCE(SUM(minutes),0), COALESCE(SUM(CASE WHEN energy='high' THEN minutes ELSE 0 END),0) FROM work_logs WHERE day=?", (day,)).fetchone()
@@ -265,6 +265,38 @@ def edit_task(db, data, task_id):
                   status=?,version=version+1,updated_at=?,planned_date=?,missed=0 WHERE id=?''', (*fields, status, now(), planned, task_id))
     if status != 'active':
         settle_items(db, task_id)
+
+
+def remove_task_data(db, task_id):
+    db.execute('DELETE FROM items WHERE task_id=?', (task_id,))
+    db.execute('DELETE FROM work_logs WHERE task_id=?', (task_id,))
+    db.execute('DELETE FROM tasks WHERE id=?', (task_id,))
+
+
+@bp.post('/tasks/<task_id>/delete')
+@mutation
+def delete_task(db, data, task_id):
+    task = task_by_id(db, task_id)
+    if data.get('version') != task['version']:
+        abort(409, '任务已有新版本，请刷新。')
+    if data.get('confirmation') != '删除':
+        abort(400, '请输入「删除」确认。')
+    if task['recurrence_id']:
+        db.execute('INSERT OR IGNORE INTO suppressed_occurrences VALUES (?,?)',
+                   (task['recurrence_id'], task['occurrence_date']))
+    remove_task_data(db, task_id)
+
+
+@bp.post('/recurrences/<rule_id>/delete')
+@mutation
+def delete_recurrence(db, data, rule_id):
+    recurrence_by_id(db, rule_id, data)
+    if data.get('confirmation') != '删除':
+        abort(400, '请输入「删除」确认。')
+    for row in db.execute('SELECT id FROM tasks WHERE recurrence_id=?', (rule_id,)).fetchall():
+        remove_task_data(db, row['id'])
+    db.execute('DELETE FROM suppressed_occurrences WHERE recurrence_id=?', (rule_id,))
+    db.execute('DELETE FROM recurrences WHERE id=?', (rule_id,))
 
 
 def recurrence_fields(data, previous=None):

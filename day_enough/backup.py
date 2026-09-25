@@ -7,30 +7,34 @@ from uuid import UUID
 from .db import init_db
 from .recurrence import next_occurrence, cycle_end, cycle_start
 
-TABLES = ('recurrences', 'tasks', 'plans', 'items', 'work_logs')
+TABLES = ('recurrences', 'suppressed_occurrences', 'tasks', 'plans', 'items', 'work_logs')
 
 
 def export_data(db):
-    return {'format': 'day-enough', 'version': 4,
+    return {'format': 'day-enough', 'version': 5,
             'default_minutes': int(db.execute("SELECT value FROM meta WHERE key='default_minutes'").fetchone()[0]),
             'tables': {name: [dict(row) for row in db.execute(f'SELECT * FROM {name}')] for name in TABLES}}
 
 
 def restore_data(db, data):
-    if not isinstance(data, dict) or data.get('format') != 'day-enough' or type(data.get('version')) is not int or data['version'] not in (1, 2, 3, 4):
+    if not isinstance(data, dict) or data.get('format') != 'day-enough' or type(data.get('version')) is not int or data['version'] not in (1, 2, 3, 4, 5):
         raise ValueError('不支持的备份版本')
     default = data.get('default_minutes')
     if type(default) is not int or not 0 <= default <= 960:
         raise ValueError('默认时间无效')
     tables = deepcopy(data.get('tables'))
     if data['version'] == 1:
-        if not isinstance(tables, dict) or set(tables) != set(TABLES[1:]) or not isinstance(tables['tasks'], list):
+        if not isinstance(tables, dict) or set(tables) != set(TABLES[2:]) or not isinstance(tables['tasks'], list):
             raise ValueError('旧版备份缺少数据表')
         tables['recurrences'] = []
         for task in tables['tasks']:
             if not isinstance(task, dict) or any(k in task for k in ('planned_date', 'recurrence_id', 'occurrence_date', 'missed_policy', 'missed')):
                 raise ValueError('旧版任务字段无效')
             task.update(planned_date='', recurrence_id=None, occurrence_date='', missed_policy='carry', missed=0)
+    if data['version'] < 5:
+        if not isinstance(tables, dict) or 'suppressed_occurrences' in tables:
+            raise ValueError('旧版备份字段无效')
+        tables['suppressed_occurrences'] = []
     if not isinstance(tables, dict) or set(tables) != set(TABLES):
         raise ValueError('缺少数据表')
     if data['version'] < 3:

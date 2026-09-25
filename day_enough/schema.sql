@@ -41,6 +41,11 @@ CREATE TABLE IF NOT EXISTS tasks (
  missed_policy TEXT NOT NULL DEFAULT 'carry' CHECK(missed_policy IN ('skip','carry')),
  missed INTEGER NOT NULL DEFAULT 0 CHECK(missed IN (0,1))
 );
+CREATE TABLE IF NOT EXISTS suppressed_occurrences (
+ recurrence_id TEXT NOT NULL REFERENCES recurrences(id),
+ occurrence_date TEXT NOT NULL,
+ PRIMARY KEY(recurrence_id, occurrence_date)
+);
 CREATE TABLE IF NOT EXISTS plans (
  day TEXT PRIMARY KEY,
  budget INTEGER NOT NULL CHECK(budget BETWEEN 0 AND 960),

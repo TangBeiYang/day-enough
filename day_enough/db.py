@@ -43,7 +43,7 @@ def init_db(db):
         if 'cycle_end' not in columns:
             for task_id, occurrence, frequency in db.execute('SELECT t.id,t.occurrence_date,r.frequency FROM tasks t JOIN recurrences r ON r.id=t.recurrence_id').fetchall():
                 db.execute('UPDATE tasks SET cycle_end=? WHERE id=?', (cycle_end(frequency, occurrence), task_id))
-        db.execute('PRAGMA user_version=4')
+        db.execute('PRAGMA user_version=5')
         db.commit()
     except Exception:
         db.rollback()

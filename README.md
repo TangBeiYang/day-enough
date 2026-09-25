@@ -9,7 +9,7 @@ DayEnough is a desktop-first personal web app. It stores data on one server so t
 ## Features
 
 - Personal password login without registration or third-party accounts.
-- Create, edit, complete, archive, and reactivate tasks.
+- Create, edit, complete, temporarily set aside, resume, and delete tasks.
 - Optional deadlines for open-ended personal tasks.
 - Optional planned dates for ordinary tasks; daily, weekly, and monthly recurring tasks with independent progress for each occurrence.
 - Track estimated remaining time and actual time spent.
@@ -18,6 +18,7 @@ DayEnough is a desktop-first personal web app. It stores data on one server so t
 - Keep the daily plan stable: completing work never adds more tasks automatically.
 - Protect data against stale cross-device edits and duplicate submissions.
 - Export and restore JSON data, and make consistent online SQLite backups.
+- Review ordinary tasks, current recurring occurrences, and recurrence rules together in Task overview.
 
 The app uses Python 3.11+, Flask, SQLite, and plain HTML, CSS, and JavaScript. It has no frontend build step and does not depend on external fonts, an AI API, or a CDN. Production deployment uses Linux and Gunicorn.
 
@@ -58,7 +59,9 @@ Choose **Recurring task** to open its dedicated form: frequency, target completi
 
 When you open or refresh the app or perform an action, daily occurrences are created for today, weekly occurrences for the current Monday–Sunday week, and monthly occurrences for the current month. All created occurrences can be recommended immediately. Completing one does not generate the next cycle early; no background scheduler is required. An explicitly future rule start date remains its activation date. Each has its own progress. By default, unfinished occurrences are marked missed after their deadline (or the end of their day/week/month if no deadline is set), retaining work already recorded without adding debt to the next occurrence. Choose **Keep pending** to keep unfinished occurrences available instead.
 
-Manage rules and occurrence history in **My tasks → Recurring tasks**. Editing a rule affects future, uncreated occurrences; edit an existing occurrence separately. Pausing stops new occurrences but keeps existing ones. Resuming does not backfill the paused period. Recurring tasks still respect time and energy limits, and existing daily plans change only when explicitly regenerated.
+Manage rules and occurrence history in **Task overview → Recurrence rules and history**. Editing a rule affects future, uncreated occurrences; edit an existing occurrence separately. Pausing stops new occurrences but keeps existing ones. Resuming does not backfill the paused period. Recurring tasks still respect time and energy limits, and existing daily plans change only when explicitly regenerated.
+
+Task overview shows active ordinary tasks, current recurring occurrences, any older occurrences still pending, and recurrence rule controls. “Set aside for now” keeps a task's progress for later. Deleting a task requires typing a confirmation and also removes its work logs and saved plan entries. Deleting one recurring occurrence leaves its rule and other occurrences intact and prevents that occurrence from returning on refresh. Deleting a whole rule removes all its occurrences and history; pause the rule if you want to keep that history.
 
 ## Data and backups
 
@@ -74,7 +77,7 @@ By default, the `instance/` directory contains the SQLite database and session-s
 
 The backup command uses SQLite's backup API, refuses to overwrite an existing file, and verifies database integrity. Do not copy a live SQLite main file directly because unmerged data may still be in its WAL. A full SQLite backup includes the password hash and should be protected like the task data.
 
-On startup, existing databases are automatically upgraded by adding the new fields and recurrence table. Back up before upgrading and restart the app after updating the code. JSON exports use version 4; version 1–3 backups can still be restored. Existing dates, progress, deadlines, and archived history are preserved. Dates now act as completion targets; each occurrence stores its cycle end so later rule edits cannot change its expiry. Older app versions cannot read version 4 backups.
+On startup, existing databases are automatically upgraded by adding the new fields and recurrence table. Back up before upgrading and restart the app after updating the code. JSON exports use version 5; version 1–4 backups can still be restored. Existing dates, progress, deadlines, and set-aside history are preserved. Dates act as completion targets; each occurrence stores its cycle end so later rule edits cannot change its expiry. Older app versions cannot read version 5 backups.
 
 ## Verification
 

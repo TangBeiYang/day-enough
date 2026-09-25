@@ -67,11 +67,12 @@ def sync_recurring(db, day, stamp):
             db.execute('''INSERT OR IGNORE INTO tasks
                 (id,title,due_date,consequence,energy,remaining_minutes,next_step,
                  status,created_at,updated_at,planned_date,recurrence_id,occurrence_date,missed_policy,missed,cycle_end)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+                WHERE NOT EXISTS (SELECT 1 FROM suppressed_occurrences WHERE recurrence_id=? AND occurrence_date=?)''',
                 (str(uuid4()), rule['title'], due,
                  rule['consequence'], rule['energy'], rule['minutes'], rule['next_step'],
                  'archived' if missed else 'active', stamp, stamp, occurrence, rule['id'],
-                 occurrence, rule['missed_policy'], int(missed), end))
+                 occurrence, rule['missed_policy'], int(missed), end, rule['id'], occurrence))
             after = (date.fromisoformat(occurrence) + timedelta(days=1)).isoformat()
             occurrence = next_occurrence(rule['frequency'], weekdays, rule['month_day'], cycle_start(rule['frequency'], rule['start_date']), after)
         if occurrence != rule['next_date']:
