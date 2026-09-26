@@ -39,7 +39,31 @@ Open <http://127.0.0.1:8000>. The password command initializes a personal passwo
 
 Run `set-password` again if the password is forgotten. Existing sessions will be invalidated while task data remains intact.
 
-The Flask development server is intended only for local use. See the [deployment guide](docs/DEPLOYMENT.md) for a server setup.
+The Flask development server is intended only for local use.
+
+## Deploy on an Alibaba Cloud Linux server
+
+Run the app with Gunicorn under a dedicated non-root user, bound only to `127.0.0.1:8000`. Put Caddy or an existing Nginx installation in front for public HTTPS. Keep SQLite data in a separate directory on the server; devices visiting the same domain then share one data store. The included one-worker, two-thread service is a starting point for a personal 2-core, 2 GB server.
+
+Before deploying, check the Linux distribution and Python version, existing sites or reverse proxies, domain and DNS. If you already have tasks locally, export a JSON backup from **Settings**. Do not expose the Flask development server or Gunicorn's port 8000 directly to the internet.
+
+1. Install Python 3.11+, `venv`, and Git on the server; obtain the repository, create the service user and data directory, and install `requirements.lock`.
+2. Set the personal password interactively, install the included systemd unit, and check the app locally on the server with `curl http://127.0.0.1:8000/`.
+3. Point a domain at the server and configure Caddy, or reuse Nginx, to proxy to `127.0.0.1:8000`. Allow the required ports 80/443 in the Alibaba Cloud security group and host firewall, then verify HTTPS login. Port 8000 does not need to be public.
+4. To migrate local tasks, sign in to the server-hosted site and restore the exported JSON from **Settings**. Sign in from another device to check synchronization, then configure backups.
+
+The [full Linux deployment guide](docs/DEPLOYMENT.md) has commands, guidance for servers with existing sites, a temporary SSH tunnel when you have no domain yet, and backup and update steps. Inspect an existing proxy configuration before changing it.
+
+## Which requirements file?
+
+| File | Purpose |
+| --- | --- |
+| `requirements.txt` | Compatible version ranges for Flask and Gunicorn, used when maintaining dependencies. |
+| `requirements.lock` | Pinned, tested production dependencies, including transitive packages; install this for local use and server deployment. |
+| `requirements-dev.txt` | Includes `requirements.txt` plus pytest for development and backend tests. |
+| `requirements-browser.txt` | Includes the development dependencies plus Playwright for optional browser acceptance tests; Chrome is installed separately. |
+
+The running server only needs `requirements.lock`; test dependencies and Node are unnecessary.
 
 ## Daily workflow
 
@@ -71,7 +95,7 @@ Task overview shows active ordinary tasks, current recurring occurrences, any ol
 
 Open **Stage plans** in the sidebar to set a date range for a weekend, holiday, or other short stretch. Add existing tasks or create an ordinary task inside the plan. Each goal can mean completing the task or spending a chosen number of minutes from the plan's start date onward. The detail page shares the original task's progress and editing controls. Removing a goal or deleting a Stage plan keeps its tasks and work logs.
 
-After the end date, unfinished goals stay in the plan and appear as a reminder on Today. Later work continues to count toward the goal. You can edit the plan, stop reminders by ending tracking, or resume tracking. A recurring occurrence set to **Skip missed work** cannot be added as a carry-over goal; use a task that keeps missed work pending instead. Stage goals currently do not change automatic daily recommendations. Use **Arrange today myself** from the plan detail to open the daily planner filtered to its tasks; filtering keeps any shares already selected. Future algorithm requirements are recorded in [Algorithm requirements](docs/ALGORITHM_REQUIREMENTS.md).
+After the end date, unfinished goals stay in the plan and appear as a reminder on Today. Later work continues to count toward the goal. You can edit the plan, stop reminders by ending tracking, or resume tracking. A recurring occurrence set to **Skip missed work** cannot be added as a carry-over goal; use a task that keeps missed work pending instead. Stage goals currently do not change automatic daily recommendations. On **Today**, choose **Arrange it myself** to filter for a Stage plan's tasks; filtering keeps any shares already selected. Future algorithm requirements are recorded in [Algorithm requirements](docs/ALGORITHM_REQUIREMENTS.md).
 
 ## Data and backups
 
