@@ -190,12 +190,13 @@ function stageTargetCard(stage, target) {
 function stageDetail(stage) {
   const pending=stage.targets.filter(t=>!t.completed), completed=stage.targets.filter(t=>t.completed);
   const notice=stage.overdue_count?`<section class="warnings stage-overdue"><h3>计划日期已结束，还有 ${stage.overdue_count} 项目标待继续</h3><p>目标继续保留，后续投入仍会累计。本计划暂不改变今日自动推荐；可以用「自己安排」挑选今天要做的任务。</p></section>`:'';
-  return `<div class="stage-back"><a class="button primary small" href="#stages">← 返回阶段计划</a></div>${intro('A TIME FOR WHAT MATTERS',esc(stage.title),`${esc(stage.start_date)} — ${esc(stage.end_date)} · ${stageLabel(stage)}`)}${stage.description?`<p class="stage-description">${esc(stage.description)}</p>`:''}<div class="stage-toolbar"><button class="button small" data-action="edit-stage" data-id="${stage.id}">编辑计划</button><button class="button small ghost" data-action="stage-status" data-id="${stage.id}">${stage.status==='closed'?'恢复追踪':'结束追踪'}</button><button class="link-button" data-action="delete-stage" data-id="${stage.id}">删除计划</button></div>${stage.status==='closed'?'<p class="muted">已停止提醒；原任务继续保留，其投入仍会更新这里的进度。</p>':''}${notice}<div class="card stage-summary"><div><b>${stage.targets.length}</b><span>项本期目标</span></div><div><b>${stage.completed_count}</b><span>项已完成</span></div><div><b>${pending.length}</b><span>项待推进</span></div></div>${stage.status==='active'?`<div class="stage-add"><button class="button primary" data-action="add-stage-target" data-id="${stage.id}">＋ 添加已有任务</button><button class="button" data-action="new-stage-task" data-id="${stage.id}">＋ 新建任务</button><button class="button ghost" data-action="stage-manual" data-id="${stage.id}">自己安排今天</button></div>`:''}<div class="section-heading"><h2>待推进 · ${pending.length}</h2></div>${pending.length?`<div class="task-stack">${pending.map(t=>stageTargetCard(stage,t)).join('')}</div>`:empty('✓','这里暂时没有待推进目标',stage.targets.length?'本期目标已完成，可以按需要继续添加。':'先添加一件想在这段时间推进的事。')}<details class="stage-completed"><summary>已完成目标 · ${completed.length}</summary><div class="task-stack">${completed.map(t=>stageTargetCard(stage,t)).join('')||'<p class="muted">还没有已完成目标。</p>'}</div></details>`;
+  return `<div class="stage-back"><a class="button primary small" href="#stages">← 返回阶段计划</a></div>${intro('A TIME FOR WHAT MATTERS',esc(stage.title),`${esc(stage.start_date)} — ${esc(stage.end_date)} · ${stageLabel(stage)}`)}${stage.description?`<p class="stage-description">${esc(stage.description)}</p>`:''}<div class="stage-toolbar"><button class="button small" data-action="edit-stage" data-id="${stage.id}">编辑计划</button><button class="button small ghost" data-action="stage-status" data-id="${stage.id}">${stage.status==='closed'?'恢复追踪':'结束追踪'}</button><button class="link-button" data-action="delete-stage" data-id="${stage.id}">删除计划</button></div>${stage.status==='closed'?'<p class="muted">已停止提醒；原任务继续保留，其投入仍会更新这里的进度。</p>':''}${notice}<div class="card stage-summary"><div><b>${stage.targets.length}</b><span>项本期目标</span></div><div><b>${stage.completed_count}</b><span>项已完成</span></div><div><b>${pending.length}</b><span>项待推进</span></div></div>${stage.status==='active'?`<div class="stage-add"><button class="button primary" data-action="add-stage-target" data-id="${stage.id}">＋ 添加已有任务</button><button class="button" data-action="new-stage-task" data-id="${stage.id}">＋ 新建任务</button></div>`:''}<div class="section-heading"><h2>待推进 · ${pending.length}</h2></div>${pending.length?`<div class="task-stack">${pending.map(t=>stageTargetCard(stage,t)).join('')}</div>`:empty('✓','这里暂时没有待推进目标',stage.targets.length?'本期目标已完成，可以按需要继续添加。':'先添加一件想在这段时间推进的事。')}<details class="stage-completed"><summary>已完成目标 · ${completed.length}</summary><div class="task-stack">${completed.map(t=>stageTargetCard(stage,t)).join('')||'<p class="muted">还没有已完成目标。</p>'}</div></details>`;
 }
 function stagesPage() {
   const stage=currentStage();
   if (location.hash.startsWith('#stages/') && stage) return stageDetail(stage);
-  return intro('MAKE SPACE FOR A FEW DAYS','阶段计划','为周末、假期或一段集中时间，定下想完成的事。')+`<div class="task-toolbar stage-list-toolbar"><div class="filters stage-filters" role="group" aria-label="阶段计划状态">${[['active','进行中与待继续'],['closed','已结束追踪'],['all','全部']].map(([value,label])=>`<button data-action="stage-filter" data-value="${value}" class="${stageFilter===value?'active':''}" aria-pressed="${stageFilter===value}">${label}</button>`).join('')}</div><input id="stage-search" type="search" value="${esc(stageSearch)}" placeholder="搜索计划或任务…" aria-label="搜索阶段计划"></div><div id="stage-results">${stageCards()}</div>`;
+  const counts={active:state.stages.filter(s=>s.status==='active').length,closed:state.stages.filter(s=>s.status==='closed').length,all:state.stages.length};
+  return intro('MAKE SPACE FOR A FEW DAYS','阶段计划','为周末、假期或一段集中时间，定下想完成的事。')+`<div class="task-toolbar stage-list-toolbar"><div class="filters stage-filters" role="group" aria-label="阶段计划状态">${[['active','进行中与待继续'],['closed','已结束追踪'],['all','全部']].map(([value,label])=>`<button data-action="stage-filter" data-value="${value}" class="${stageFilter===value?'active':''}" aria-pressed="${stageFilter===value}">${label} · ${counts[value]}</button>`).join('')}</div><input id="stage-search" type="search" value="${esc(stageSearch)}" placeholder="搜索计划或任务…" aria-label="搜索阶段计划"></div><div id="stage-results">${stageCards()}</div>`;
 }
 function stageCards() {
   const query=stageSearch.trim().toLowerCase();
@@ -213,7 +214,6 @@ function render() {
   topCreate.hidden=page()==='stages'&&!stageList;
   topCreate.dataset.action=stageList?'new-stage':'new-task';
   topCreate.textContent=stageList?'＋ 新建阶段计划':'＋ 新建任务';
-  $('#task-count').textContent = overviewTasks().length;
   const overdue=state.stages.filter(s=>s.overdue_count).length;
   $('#stage-count').hidden=!overdue; $('#stage-count').textContent=overdue;
   $$('[data-page]').forEach(a => {a.classList.toggle('active', a.dataset.page === page()); if (a.dataset.page === page()) a.setAttribute('aria-current','page'); else a.removeAttribute('aria-current');});
@@ -359,7 +359,7 @@ function updateManualSummary() {
   warning.hidden = total <= budget;
   warning.textContent = total > budget ? `比今日预算多 ${total-budget} 分钟。可以调整份额或预算，也可以按自己的判断直接保存。` : '';
 }
-function manualDialog(stageId = '') {
+function manualDialog() {
   const planForm = $('#plan-form');
   $('#manual-budget').value = $('#plan-budget').value;
   $('#manual-energy').value = $('input[name="energy"]:checked', planForm).value;
@@ -367,7 +367,6 @@ function manualDialog(stageId = '') {
   const activeStages=state.stages.filter(s=>s.status==='active');
   $('#manual-stage-field').hidden=!activeStages.length;
   $('#manual-stage-filter').innerHTML='<option value="">所有任务</option>'+activeStages.map(s=>`<option value="${s.id}">${esc(s.title)}</option>`).join('');
-  $('#manual-stage-filter').value=stageId;
   const pending = state.items.filter(item => item.status === 'pending' && item.task_status === 'active');
   const ordered = [...pending.map(item => state.tasks.find(task => task.id === item.task_id)),
     ...state.tasks.filter(task => task.status === 'active' && task.remaining_minutes > 0 && !pending.some(item => item.task_id === task.id))].filter(Boolean);
@@ -420,7 +419,6 @@ document.addEventListener('click',event=>{
   const task=state?.tasks.find(t=>t.id===id);
   const stage=state?.stages.find(s=>s.id===id);
   if(action==='new-stage') return stageDialog();
-  if(action==='stage-manual') {location.hash='#today';render();return manualDialog(id);}
   if(action==='edit-stage') return stageDialog(stage);
   if(action==='stage-filter') {stageFilter=value;render();return;}
   if(action==='add-stage-target') return stageTargetDialog(stage);
