@@ -3,7 +3,7 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const labels = {low: '低', medium: '中', high: '高'};
-let state, csrfToken, busy = false, filter = 'overview', search = '', stageFilter = 'active', confirmAction;
+let state, csrfToken, busy = false, filter = 'overview', search = '', stageFilter = 'active', stageSearch = '', confirmAction;
 let toastTimer;
 const formContext = new WeakMap();
 
@@ -178,7 +178,7 @@ function stageLabel(stage) {
 }
 function stageCard(stage) {
   const names=stage.targets.slice(0,3).map(target=>state.tasks.find(t=>t.id===target.task_id)?.title).filter(Boolean);
-  return `<article class="card stage-card"><div class="tag-row"><span class="tag ${stage.overdue_count?'high':''}">${stageLabel(stage)}</span><span>${esc(stage.start_date)} — ${esc(stage.end_date)}</span></div><h2><a href="#stages/${stage.id}">${esc(stage.title)}</a></h2><p class="muted">${stage.targets.length} 项目标 · 已完成 ${stage.completed_count} 项${names.length?`<br>${names.map(esc).join('、')}${stage.targets.length>3?'…':''}`:''}</p><a class="button small" href="#stages/${stage.id}">查看计划 ↗</a></article>`;
+  return `<article class="card stage-card"><div class="tag-row"><span class="tag ${stage.overdue_count?'high':''}">${stageLabel(stage)}</span><span>${esc(stage.start_date)} — ${esc(stage.end_date)}</span></div><h2><a href="#stages/${stage.id}">${esc(stage.title)}</a></h2><p class="muted">${stage.targets.length} 项目标 · 已完成 ${stage.completed_count} 项${names.length?`<br>${names.map(esc).join('、')}${stage.targets.length>3?'…':''}`:''}</p><div class="stage-card-actions"><a class="button small" href="#stages/${stage.id}">查看计划 ↗</a><button class="link-button" data-action="delete-stage" data-id="${stage.id}">删除计划</button></div></article>`;
 }
 function stageTargetCard(stage, target) {
   const task=state.tasks.find(t=>t.id===target.task_id);
@@ -190,20 +190,29 @@ function stageTargetCard(stage, target) {
 function stageDetail(stage) {
   const pending=stage.targets.filter(t=>!t.completed), completed=stage.targets.filter(t=>t.completed);
   const notice=stage.overdue_count?`<section class="warnings stage-overdue"><h3>计划日期已结束，还有 ${stage.overdue_count} 项目标待继续</h3><p>目标继续保留，后续投入仍会累计。本计划暂不改变今日自动推荐；可以用「自己安排」挑选今天要做的任务。</p></section>`:'';
-  return `<div class="stage-back"><a href="#stages">← 返回阶段计划</a></div>${intro('A TIME FOR WHAT MATTERS',esc(stage.title),`${esc(stage.start_date)} — ${esc(stage.end_date)} · ${stageLabel(stage)}`)}${stage.description?`<p class="stage-description">${esc(stage.description)}</p>`:''}<div class="stage-toolbar"><button class="button small" data-action="edit-stage" data-id="${stage.id}">编辑计划</button><button class="button small ghost" data-action="stage-status" data-id="${stage.id}">${stage.status==='closed'?'恢复追踪':'结束追踪'}</button><button class="link-button" data-action="delete-stage" data-id="${stage.id}">删除计划</button></div>${stage.status==='closed'?'<p class="muted">已停止提醒；原任务继续保留，其投入仍会更新这里的进度。</p>':''}${notice}<div class="card stage-summary"><div><b>${stage.targets.length}</b><span>项本期目标</span></div><div><b>${stage.completed_count}</b><span>项已完成</span></div><div><b>${pending.length}</b><span>项待推进</span></div></div>${stage.status==='active'?`<div class="stage-add"><button class="button primary" data-action="add-stage-target" data-id="${stage.id}">＋ 添加已有任务</button><button class="button" data-action="new-stage-task" data-id="${stage.id}">＋ 新建任务</button><button class="button ghost" data-action="stage-manual" data-id="${stage.id}">自己安排今天</button></div>`:''}<div class="section-heading"><h2>待推进 · ${pending.length}</h2></div>${pending.length?`<div class="task-stack">${pending.map(t=>stageTargetCard(stage,t)).join('')}</div>`:empty('✓','这里暂时没有待推进目标',stage.targets.length?'本期目标已完成，可以按需要继续添加。':'先添加一件想在这段时间推进的事。')}<details class="stage-completed"><summary>已完成目标 · ${completed.length}</summary><div class="task-stack">${completed.map(t=>stageTargetCard(stage,t)).join('')||'<p class="muted">还没有已完成目标。</p>'}</div></details>`;
+  return `<div class="stage-back"><a class="button primary small" href="#stages">← 返回阶段计划</a></div>${intro('A TIME FOR WHAT MATTERS',esc(stage.title),`${esc(stage.start_date)} — ${esc(stage.end_date)} · ${stageLabel(stage)}`)}${stage.description?`<p class="stage-description">${esc(stage.description)}</p>`:''}<div class="stage-toolbar"><button class="button small" data-action="edit-stage" data-id="${stage.id}">编辑计划</button><button class="button small ghost" data-action="stage-status" data-id="${stage.id}">${stage.status==='closed'?'恢复追踪':'结束追踪'}</button><button class="link-button" data-action="delete-stage" data-id="${stage.id}">删除计划</button></div>${stage.status==='closed'?'<p class="muted">已停止提醒；原任务继续保留，其投入仍会更新这里的进度。</p>':''}${notice}<div class="card stage-summary"><div><b>${stage.targets.length}</b><span>项本期目标</span></div><div><b>${stage.completed_count}</b><span>项已完成</span></div><div><b>${pending.length}</b><span>项待推进</span></div></div>${stage.status==='active'?`<div class="stage-add"><button class="button primary" data-action="add-stage-target" data-id="${stage.id}">＋ 添加已有任务</button><button class="button" data-action="new-stage-task" data-id="${stage.id}">＋ 新建任务</button><button class="button ghost" data-action="stage-manual" data-id="${stage.id}">自己安排今天</button></div>`:''}<div class="section-heading"><h2>待推进 · ${pending.length}</h2></div>${pending.length?`<div class="task-stack">${pending.map(t=>stageTargetCard(stage,t)).join('')}</div>`:empty('✓','这里暂时没有待推进目标',stage.targets.length?'本期目标已完成，可以按需要继续添加。':'先添加一件想在这段时间推进的事。')}<details class="stage-completed"><summary>已完成目标 · ${completed.length}</summary><div class="task-stack">${completed.map(t=>stageTargetCard(stage,t)).join('')||'<p class="muted">还没有已完成目标。</p>'}</div></details>`;
 }
 function stagesPage() {
   const stage=currentStage();
   if (location.hash.startsWith('#stages/') && stage) return stageDetail(stage);
-  const visible=state.stages.filter(s=>stageFilter==='all'||(stageFilter==='active'?s.status==='active':s.status==='closed'));
+  return intro('MAKE SPACE FOR A FEW DAYS','阶段计划','为周末、假期或一段集中时间，定下想完成的事。')+`<div class="task-toolbar stage-list-toolbar"><div class="filters stage-filters" role="group" aria-label="阶段计划状态">${[['active','进行中与待继续'],['closed','已结束追踪'],['all','全部']].map(([value,label])=>`<button data-action="stage-filter" data-value="${value}" class="${stageFilter===value?'active':''}" aria-pressed="${stageFilter===value}">${label}</button>`).join('')}</div><input id="stage-search" type="search" value="${esc(stageSearch)}" placeholder="搜索计划或任务…" aria-label="搜索阶段计划"></div><div id="stage-results">${stageCards()}</div>`;
+}
+function stageCards() {
+  const query=stageSearch.trim().toLowerCase();
+  const visible=state.stages.filter(s=>(stageFilter==='all'||(stageFilter==='active'?s.status==='active':s.status==='closed')) &&
+    (!query || [s.title,s.description,...s.targets.map(target=>state.tasks.find(t=>t.id===target.task_id)?.title||'')].join(' ').toLowerCase().includes(query)));
   visible.sort((a,b)=>Number(!!b.overdue_count)-Number(!!a.overdue_count)||b.start_date.localeCompare(a.start_date));
-  return intro('MAKE SPACE FOR A FEW DAYS','阶段计划','为周末、假期或一段集中时间，定下想完成的事。','<button class="button primary" data-action="new-stage">＋ 新建阶段计划</button>')+`<div class="filters stage-filters" role="group" aria-label="阶段计划状态">${[['active','进行中与待继续'],['closed','已结束追踪'],['all','全部']].map(([value,label])=>`<button data-action="stage-filter" data-value="${value}" class="${stageFilter===value?'active':''}" aria-pressed="${stageFilter===value}">${label}</button>`).join('')}</div>${visible.length?`<div class="stage-grid">${visible.map(stageCard).join('')}</div>`:empty('▦',stageFilter==='active'?'从一个周末计划开始':'这里还没有阶段计划',stageFilter==='active'?'选择日期，再把想推进的任务放进来。':'可以切换筛选查看其他计划。',stageFilter==='active'?'<button class="button primary" data-action="new-stage">＋ 新建阶段计划</button>':'')}`;
+  return visible.length?`<div class="stage-grid">${visible.map(stageCard).join('')}</div>`:empty('▦',query?'没有找到匹配的计划':stageFilter==='active'?'从一个周末计划开始':'这里还没有阶段计划',query?'试试计划名称、说明或任务名称。':stageFilter==='active'?'选择日期，再把想推进的任务放进来。':'可以切换筛选查看其他计划。');
 }
 function settingsPage() {
   return intro('YOUR OWN RHYTHM', '按你的方式来。', '简单的设置，留给真正需要的事。') + `<div class="settings-grid"><section class="card settings-card"><h2>默认每日时间</h2><p>生成新一天的安排时使用，也用于估算截止风险。当天可以单独修改。</p><form id="settings-form"><label for="default-minutes">每天默认可支配分钟</label><input id="default-minutes" name="default_minutes" type="number" min="0" max="960" step="1" required value="${state.settings.default_minutes}"><p class="form-error error-text" role="alert"></p><button class="button primary" type="submit">保存设置</button></form><p class="footnote">日期统一按中国标准时间（Asia/Shanghai）计算。</p></section><section class="card settings-card"><h2>带走你的数据</h2><p>导出所有任务、每日安排和投入记录。备份不包含密码或登录信息。</p><div class="backup-actions"><a href="/api/export" class="button" download>↓ 导出 JSON 备份</a><button class="button ghost" data-action="import">↑ 从备份恢复</button><input id="backup-file" type="file" accept="application/json,.json" hidden></div><p class="footnote">恢复会替换全部现有任务数据。建议先导出当前备份。</p></section><section class="card settings-card"><h2>个人密码</h2><p>修改后，其他电脑上的会话需要重新登录。</p><form id="password-form"><div class="password-fields"><div><label for="old-password">当前密码</label><input id="old-password" name="old_password" type="password" autocomplete="current-password" maxlength="256" required></div><div><label for="new-password">新密码（至少 12 个字符）</label><input id="new-password" name="new_password" type="password" autocomplete="new-password" minlength="12" maxlength="256" required></div></div><p class="form-error error-text" role="alert"></p><button class="button primary" type="submit">更新密码</button></form></section><section class="card settings-card"><p class="eyebrow">SMALL STEPS, STEADY DAYS</p><h2>为你自己留一份余地</h2><p>推荐依据截止日期、剩余用时、后果严重度和当天精力。它是一份可以调整的建议，不是对你的评判。</p><p>第一版不会自动学习你的状态。用几天后，按实际情况修正用时估计，安排会更贴近现实。</p><button class="button ghost" data-action="logout">退出当前登录</button></section></div>`;
 }
 function render() {
   $('#today-date').textContent = dateLabel(state.day);
+  const topCreate=$('#top-create-button'), stageList=page()==='stages'&&!currentStage();
+  topCreate.hidden=page()==='stages'&&!stageList;
+  topCreate.dataset.action=stageList?'new-stage':'new-task';
+  topCreate.textContent=stageList?'＋ 新建阶段计划':'＋ 新建任务';
   $('#task-count').textContent = overviewTasks().length;
   const overdue=state.stages.filter(s=>s.overdue_count).length;
   $('#stage-count').hidden=!overdue; $('#stage-count').textContent=overdue;
@@ -483,6 +492,7 @@ document.addEventListener('input',event=>{
   if(event.target.id==='manual-budget'||event.target.classList.contains('manual-minutes')) updateManualSummary();
   if(event.target.closest('#task-form')) updateRuleSummary();
   if(event.target.id==='task-search') {search=event.target.value;$('#library-results').innerHTML=libraryCards();}
+  if(event.target.id==='stage-search') {stageSearch=event.target.value;$('#stage-results').innerHTML=stageCards();}
 });
 document.addEventListener('change',event=>{
   if(event.target.id==='manual-stage-filter') {filterManualRows();return;}
