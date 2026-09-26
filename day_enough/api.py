@@ -3,13 +3,15 @@ import json
 import secrets
 import sqlite3
 import time
+import unicodedata
 from datetime import date, datetime
 from functools import wraps
+from pathlib import Path
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 from flask import Blueprint, abort, current_app, jsonify, request, session
 from werkzeug.security import check_password_hash, generate_password_hash
-from .db import get_db, value, set_value
+from .db import connect, get_db, get_registry_db, init_db, user_db_path, value, set_value
 from .capacity import read_capacity, validate_capacity, minutes_on
 from .planner import recommend, risks
 from .recurrence import next_occurrence, sync_recurring, cycle_start
@@ -65,7 +67,10 @@ def csrf():
 
 
 def authenticated():
-    return session.get('authenticated') and session.get('auth_version') == value(get_db(), 'auth_version')
+    user_id = session.get('user_id')
+    if not user_id or not get_registry_db().execute('SELECT 1 FROM users WHERE id=?', (user_id,)).fetchone():
+        return False
+    return session.get('auth_version') == value(get_db(), 'auth_version')
 
 
 def require_auth():
@@ -178,41 +183,126 @@ def mutation(fn):
 def get_session():
     if 'csrf' not in session:
         session['csrf'] = secrets.token_hex(32)
-    return jsonify(authenticated=bool(authenticated()), configured=bool(value(get_db(), 'password_hash')), csrf=session['csrf'])
+    logged_in = bool(authenticated())
+    username = None
+    if logged_in:
+        username = get_registry_db().execute('SELECT username FROM users WHERE id=?',
+                                             (session['user_id'],)).fetchone()['username']
+    return jsonify(authenticated=logged_in, configured=bool(value(get_registry_db(), 'password_hash')),
+                   username=username, csrf=session['csrf'])
+
+
+def username_field(data):
+    raw = data.get('username')
+    if not isinstance(raw, str):
+        abort(400, '用户名须为 3–32 个字符，可使用汉字、字母、数字、下划线和短横线。')
+    name = unicodedata.normalize('NFKC', raw.strip()).casefold()
+    if not 3 <= len(name) <= 32 or not all(c.isalnum() or c in '_-' for c in name):
+        abort(400, '用户名须为 3–32 个字符，可使用汉字、字母、数字、下划线和短横线。')
+    return name
+
+
+def record_attempt(db):
+    stamp = time.time()
+    ip = request.remote_addr or 'unknown'
+    db.execute('DELETE FROM login_attempts WHERE at<?', (stamp - 300,))
+    if db.execute('SELECT COUNT(*) FROM login_attempts WHERE ip=?', (ip,)).fetchone()[0] >= 10:
+        abort(429, '尝试次数较多，请 5 分钟后重试。')
+    db.execute('INSERT INTO login_attempts VALUES (?,?)', (ip, stamp))
+
+
+def sign_in(user_id, version):
+    session.clear()
+    session.permanent = True
+    session.update(user_id=user_id, auth_version=version, csrf=secrets.token_hex(32))
+    return jsonify(csrf=session['csrf'])
 
 
 @bp.post('/login')
 def login():
     csrf()
     data = payload()
+    username = username_field(data)
     password = data.get('password')
     if not isinstance(password, str) or len(password) > 256:
         abort(400, '密码无效。')
-    db = get_db()
-    stored = value(db, 'password_hash')
-    if not stored:
-        abort(503, '请先在服务器终端设置个人密码，参见 README。')
-    stamp = time.time()
-    ip = request.remote_addr or 'unknown'
-    db.execute('BEGIN IMMEDIATE')
+    registry = get_registry_db()
+    registry.execute('BEGIN IMMEDIATE')
     try:
-        db.execute('DELETE FROM login_attempts WHERE at<?', (stamp - 300,))
-        count = db.execute('SELECT COUNT(*) FROM login_attempts WHERE ip=?', (ip,)).fetchone()[0]
-        if count >= 10:
-            abort(429, '尝试次数较多，请 5 分钟后重试。')
-        db.execute('INSERT INTO login_attempts VALUES (?,?)', (ip, stamp))
+        record_attempt(registry)
+        row = registry.execute('SELECT id FROM users WHERE username=?', (username,)).fetchone()
+        registry.commit()
+    except Exception:
+        registry.rollback()
+        raise
+    if not row:
+        abort(401, '用户名或密码不正确。')
+    if row['id'] != 'owner' and not Path(user_db_path(row['id'])).is_file():
+        abort(503, '账号数据暂时不可用，请联系管理员检查备份。')
+    db = registry if row['id'] == 'owner' else connect(user_db_path(row['id']))
+    try:
         stored = value(db, 'password_hash')
         login_version = value(db, 'auth_version')
-        db.commit()
+    finally:
+        if db is not registry:
+            db.close()
+    if not stored or not check_password_hash(stored, password):
+        abort(401, '用户名或密码不正确。')
+    return sign_in(row['id'], login_version)
+
+
+@bp.post('/register')
+def register_user():
+    csrf()
+    data = payload()
+    username = username_field(data)
+    password = data.get('password')
+    invite_code = data.get('invite_code')
+    if not isinstance(password, str) or not 12 <= len(password) <= 256:
+        abort(400, '密码须为 12–256 个字符。')
+    if not isinstance(invite_code, str) or len(invite_code) > 256:
+        abort(400, '邀请码无效。')
+    registry = get_registry_db()
+    registry.execute('BEGIN IMMEDIATE')
+    try:
+        record_attempt(registry)
+        registry.commit()
     except Exception:
-        db.rollback()
+        registry.rollback()
         raise
-    if not check_password_hash(stored, password):
-        abort(401, '密码不正确。')
-    session.clear()
-    session.permanent = True
-    session.update(authenticated=True, auth_version=login_version, csrf=secrets.token_hex(32))
-    return jsonify(csrf=session['csrf'])
+    registry.execute('BEGIN IMMEDIATE')
+    new_path = None
+    try:
+        invite_hash = value(registry, 'invite_code_hash')
+        if not invite_hash:
+            abort(503, '当前未开放注册，请联系管理员设置邀请码。')
+        if not check_password_hash(invite_hash, invite_code):
+            abort(403, '邀请码不正确。')
+        if registry.execute('SELECT 1 FROM users WHERE username=?', (username,)).fetchone():
+            abort(409, '该用户名已被使用。')
+        user_id = uuid4().hex
+        directory = Path(user_db_path(user_id)).parent
+        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        directory.chmod(0o700)
+        new_path = Path(user_db_path(user_id))
+        user_db = connect(new_path)
+        try:
+            init_db(user_db)
+            user_db.execute('BEGIN IMMEDIATE')
+            set_value(user_db, 'password_hash', generate_password_hash(password))
+            user_db.commit()
+        finally:
+            user_db.close()
+        new_path.chmod(0o600)
+        registry.execute('INSERT INTO users VALUES (?,?,?)', (user_id, username, now()))
+        registry.commit()
+    except Exception:
+        registry.rollback()
+        if new_path:
+            for suffix in ('', '-wal', '-shm'):
+                Path(str(new_path) + suffix).unlink(missing_ok=True)
+        raise
+    return sign_in(user_id, '0')
 
 
 @bp.post('/logout')

@@ -8,7 +8,7 @@ DayEnough is a desktop-first personal web app. It stores data on one server so t
 
 ## Features
 
-- Personal password login without registration or third-party accounts.
+- Username and password login, invite-code registration, and separate data for each account.
 - Create, edit, complete, temporarily set aside, resume, and delete tasks.
 - Optional deadlines for open-ended personal tasks.
 - Optional planned dates for ordinary tasks; daily, weekly, and monthly recurring tasks with independent progress for each occurrence.
@@ -32,18 +32,19 @@ From the repository root on Linux or macOS (use WSL on Windows):
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.lock
 .venv/bin/flask --app day_enough set-password
+.venv/bin/flask --app day_enough set-invite-code
 .venv/bin/flask --app day_enough run --host 127.0.0.1 --port 8000
 ```
 
-Open <http://127.0.0.1:8000>. The password command initializes a personal password of at least 12 characters without storing it in source code. Until a password is configured, the app shows an initialization notice.
+Open <http://127.0.0.1:8000>. `set-password` sets the password for `owner`, which keeps all existing personal tasks; sign in with `owner` and your previous password. `set-invite-code` sets a registration code of at least 12 characters. New users need this code to register. Neither secret is stored in source code; registration is disabled until a code is set.
 
-Run `set-password` again if the password is forgotten. Existing sessions will be invalidated while task data remains intact.
+Run `set-password --username NAME` to reset an account password (`owner` by default). Its existing sessions are invalidated while task data remains intact. Run `set-invite-code` again to rotate the code, or `disable-registration` to pause new registrations.
 
 The Flask development server is intended only for local use.
 
 ## Deploy on an Alibaba Cloud Linux server
 
-Run the app with Gunicorn under a dedicated non-root user, bound only to `127.0.0.1:8000`. Put Caddy or an existing Nginx installation in front for public HTTPS. Keep SQLite data in a separate directory on the server; devices visiting the same domain then share one data store. The included one-worker, two-thread service is a starting point for a personal 2-core, 2 GB server.
+Run the app with Gunicorn under a dedicated non-root user, bound only to `127.0.0.1:8000`. Put Caddy or an existing Nginx installation in front for public HTTPS. Keep SQLite data in a separate directory on the server; the same account sees its data from different devices. The included one-worker, two-thread service is a starting point for a personal 2-core, 2 GB server.
 
 Before deploying, check the Linux distribution and Python version, existing sites or reverse proxies, domain and DNS. If you already have tasks locally, export a JSON backup from **Settings**. Do not expose the Flask development server or Gunicorn's port 8000 directly to the internet.
 
@@ -101,17 +102,17 @@ After the end date, unfinished goals stay in the plan and appear as a reminder o
 
 By default, the `instance/` directory contains the SQLite database and session-signing key. It is excluded from Git. Set `DAY_ENOUGH_DATA` to use another absolute data directory.
 
-- Use **Settings → Export JSON backup** for routine portable backups. The file contains tasks, recurrence rules, plans, work logs, and time budgets, but no password.
-- Use **Settings → Restore from backup** to restore a JSON backup. This replaces all current task data, so export the current state first.
+- Use **Settings → Export JSON backup** for routine portable backups of the current account. The file contains tasks, recurrence rules, plans, work logs, and time budgets, but no password.
+- Use **Settings → Restore from backup** to replace the current account's task data. Export its current state first.
 - Make a consistent server-side SQLite backup with:
 
 ```bash
-.venv/bin/flask --app day_enough backup backups/day-enough-2026-09-21.sqlite
+.venv/bin/flask --app day_enough backup backups/day-enough-2026-09-21.zip
 ```
 
-The backup command uses SQLite's backup API, refuses to overwrite an existing file, and verifies database integrity. Do not copy a live SQLite main file directly because unmerged data may still be in its WAL. A full SQLite backup includes the password hash and should be protected like the task data.
+The backup command uses SQLite's backup API, refuses to overwrite an existing file, and verifies database integrity. The ZIP includes the main database and every user database. Do not copy only the live main file. A complete backup contains password and invite-code hashes, so protect it like task data. A legacy single-user installation can still use a `.sqlite` backup, but multiple accounts require `.zip`. Stop the service before restoring the archive's `day-enough.sqlite` and `users/` directory together; see the [deployment guide](docs/DEPLOYMENT.md).
 
-On startup, existing databases are automatically upgraded with Stage plan tables and default time-budget settings. Back up before upgrading and restart the app after updating the code. JSON exports use version 7; version 1–6 backups can still be restored, with the previous single daily default applied to all weekdays. Existing dates, progress, deadlines, and set-aside history are preserved. Older app versions cannot read version 7 backups.
+On startup, an existing database gains an account registry; its tasks, plans, progress, and settings remain under `owner`. Back up before upgrading and restart the app after updating the code. JSON exports remain at version 7; version 1–6 backups can still be restored, with the previous single daily default applied to all weekdays. Older app versions do not support multi-account data.
 
 ## Verification
 

@@ -27,8 +27,8 @@ def test_login_limit_and_password_reset(app, browser):
     csrf = bad.get('/api/session').json['csrf']
     # Two successful logins already consumed attempts in this window.
     for _ in range(8):
-        assert bad.post('/api/login', json={'password': 'wrong'}, headers={'X-CSRF-Token': csrf}).status_code == 401
-    assert bad.post('/api/login', json={'password': 'wrong'}, headers={'X-CSRF-Token': csrf}).status_code == 429
+        assert bad.post('/api/login', json={'username': 'owner', 'password': 'wrong'}, headers={'X-CSRF-Token': csrf}).status_code == 401
+    assert bad.post('/api/login', json={'username': 'owner', 'password': 'wrong'}, headers={'X-CSRF-Token': csrf}).status_code == 429
     assert browser.post('/password', {'old_password':PASSWORD, 'new_password':'new-password-123456'}).status_code == 200
     assert other.client.get('/api/state').status_code == 401
     assert browser.client.get('/api/state').status_code == 200
@@ -216,5 +216,5 @@ def test_password_reset_during_login_does_not_authorize_old_password(app, monkey
     monkeypatch.setattr(api,'check_password_hash',concurrent_reset)
     client = app.test_client()
     csrf = client.get('/api/session').json['csrf']
-    client.post('/api/login',json={'password':PASSWORD},headers={'X-CSRF-Token':csrf})
+    client.post('/api/login',json={'username':'owner','password':PASSWORD},headers={'X-CSRF-Token':csrf})
     assert client.get('/api/state').status_code == 401

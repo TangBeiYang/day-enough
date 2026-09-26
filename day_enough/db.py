@@ -1,6 +1,7 @@
 import sqlite3
+from datetime import datetime
 from pathlib import Path
-from flask import current_app, g
+from flask import abort, current_app, g, has_request_context, session
 from .recurrence import cycle_end
 
 
@@ -14,8 +15,30 @@ def connect(path):
 
 def get_db():
     if 'db' not in g:
-        g.db = connect(current_app.config['DATABASE'])
+        user_id = session.get('user_id') if has_request_context() else None
+        if user_id and user_id != 'owner':
+            row = get_registry_db().execute('SELECT id FROM users WHERE id=?', (user_id,)).fetchone()
+            if row:
+                path = user_db_path(user_id)
+                if not Path(path).is_file():
+                    abort(503, '账号数据暂时不可用，请联系管理员检查备份。')
+                g.db = connect(path)
+            else:
+                g.db = connect(current_app.config['DATABASE'])
+        else:
+            g.db = connect(current_app.config['DATABASE'])
     return g.db
+
+
+def get_registry_db():
+    if 'registry_db' not in g:
+        g.registry_db = connect(current_app.config['DATABASE'])
+    return g.registry_db
+
+
+def user_db_path(user_id):
+    # Only ids fetched from the registry or generated server-side reach this path.
+    return str(Path(current_app.config['DATABASE']).parent / 'users' / f'{user_id}.sqlite')
 
 
 def init_db(db):
@@ -43,7 +66,9 @@ def init_db(db):
         if 'cycle_end' not in columns:
             for task_id, occurrence, frequency in db.execute('SELECT t.id,t.occurrence_date,r.frequency FROM tasks t JOIN recurrences r ON r.id=t.recurrence_id').fetchall():
                 db.execute('UPDATE tasks SET cycle_end=? WHERE id=?', (cycle_end(frequency, occurrence), task_id))
-        db.execute('PRAGMA user_version=7')
+        db.execute('PRAGMA user_version=8')
+        db.execute('INSERT OR IGNORE INTO users VALUES (?,?,?)',
+                   ('owner', 'owner', datetime.now().isoformat(timespec='seconds')))
         db.commit()
     except Exception:
         db.rollback()

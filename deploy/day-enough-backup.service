@@ -1,5 +1,5 @@
 [Unit]
-Description=Daily DayEnough SQLite backup
+Description=Daily DayEnough account backup
 
 [Service]
 Type=oneshot
@@ -7,7 +7,7 @@ User=dayenough
 Group=dayenough
 WorkingDirectory=/opt/day-enough
 Environment=DAY_ENOUGH_DATA=/var/lib/day-enough
-ExecStart=/bin/sh -c 'exec .venv/bin/flask --app day_enough backup "/var/lib/day-enough/backups/day-enough-$(date -u +%%Y%%m%%dT%%H%%M%%SZ).sqlite"'
+ExecStart=/bin/sh -c 'exec .venv/bin/flask --app day_enough backup "/var/lib/day-enough/backups/day-enough-$(date -u +%%Y%%m%%dT%%H%%M%%SZ).zip"'
 UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true

@@ -42,12 +42,13 @@ sudo -u dayenough git clone https://github.com/TangBeiYang/day-enough.git /opt/d
 cd /opt/day-enough
 ```
 
-确认仓库中已有要部署的最新提交。以应用用户安装生产依赖，并交互式设置服务器的个人密码：
+确认仓库中已有要部署的最新提交。以应用用户安装生产依赖，并交互式设置 owner 账号密码及注册邀请码：
 
 ```bash
 sudo -u dayenough python3 -m venv .venv
 sudo -u dayenough .venv/bin/pip install -r requirements.lock
 sudo -u dayenough env DAY_ENOUGH_DATA=/var/lib/day-enough .venv/bin/flask --app day_enough set-password
+sudo -u dayenough env DAY_ENOUGH_DATA=/var/lib/day-enough .venv/bin/flask --app day_enough set-invite-code
 ```
 
 使用 `deploy/day-enough.service`，按实际路径修改后安装：
@@ -114,7 +115,7 @@ ssh -N -L 8000:127.0.0.1:8000 你的SSH主机别名
 
 ```bash
 cd /opt/day-enough
-sudo -u dayenough env DAY_ENOUGH_DATA=/var/lib/day-enough .venv/bin/flask --app day_enough backup "/var/lib/day-enough/backups/manual-$(date -u +%Y%m%dT%H%M%SZ).sqlite"
+sudo -u dayenough env DAY_ENOUGH_DATA=/var/lib/day-enough .venv/bin/flask --app day_enough backup "/var/lib/day-enough/backups/manual-$(date -u +%Y%m%dT%H%M%SZ).zip"
 ```
 
 可安装附带的 `day-enough-backup.service` 与 `.timer` 每天运行，默认保留所有快照，不自动删除；个人数据量很小，按需手动清理。备份应定期另存到个人电脑或其他机器，仅同盘备份不能应对服务器损坏。
@@ -128,12 +129,12 @@ sudo systemctl list-timers day-enough-backup.timer
 
 迁移本机任务的简单办法：先从本机应用「设置 → 导出 JSON 备份」，在服务器初始化新实例并设置密码，再登录服务器网站，在「设置 → 从备份恢复」导入。恢复会替换服务器当前任务数据；导入前先核对所选文件。无需迁移阿里云专有资源。
 
-使用完整 SQLite 备份恢复：
+使用完整 ZIP 备份恢复：
 
 1. 停止目标应用服务，并确认没有其他进程打开数据库。
 2. 将目标现有数据目录整体改名保留（包含主库、WAL/SHM 和 secret.key），不要直接覆盖在线库。
-3. 新建同路径数据目录，将完整备份复制为 `day-enough.sqlite`，恢复服务用户归属与权限（目录 700、数据库 600）。
-4. 启动服务，生成新的 secret.key，所有设备重新登录；数据库中的个人密码保持不变。
+3. 新建同路径数据目录，将 ZIP 解压到目录根部；其中应有 `day-enough.sqlite` 和 `users/`。恢复服务用户归属与权限（目录 700、数据库 600）。
+4. 启动服务，生成新的 secret.key，所有设备重新登录；各账号密码保持不变。
 5. 检查任务数量、最近进度、今日计划；出现问题时停止服务并恢复原数据目录。
 
 ## 4. 维护
@@ -143,5 +144,5 @@ sudo journalctl -u day-enough -n 100 --no-pager
 sudo systemctl restart day-enough
 ```
 
-升级前先备份，再更新代码/依赖和重启。当前 schema 标记为 v7，启动时自动补齐阶段计划表及时间预算默认值，保留已有任务、计划和投入记录；旧规则保留原截止方式。新 JSON 备份为 v7，应用兼容恢复 v1–v6；回退旧代码时需同时恢复升级前的数据库备份。后续结构变更仍须提供显式迁移，不能只修改建表语句。
-当前登录限流由 SQLite 存储，代理后的请求共同计入个人实例的 5 分钟 10 次额度；不信任任意客户端传入的代理 IP 头。
+升级前先备份，再更新代码/依赖和重启。当前 schema 标记为 v8，启动时自动建立账号登记表并将旧数据保留给 owner，保留已有任务、计划和投入记录。新 JSON 备份仍为 v7，应用兼容恢复 v1–v6；回退旧代码时需同时恢复升级前的数据库备份。后续结构变更仍须提供显式迁移，不能只修改建表语句。
+邀请码可随时再次运行 `set-invite-code` 更换；运行 `disable-registration` 可暂停新注册，现有账号不受影响。忘记密码可运行 `set-password --username 用户名`。账号登记保存在主库，用户数据保存在 `users/`；升级前需用 ZIP 完整备份，不要只备份主库。当前登录和注册限流由 SQLite 存储，请求 IP 在 5 分钟内共 10 次额度；不信任任意客户端传入的代理 IP 头。

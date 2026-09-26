@@ -34,7 +34,7 @@ async function api(path, body, base) {
   try { result = await response.json(); }
   catch (_) { throw new Error('服务器暂时未能返回数据，请稍后刷新。'); }
   if (!response.ok) {
-    if (response.status === 401 && path !== '/login') {
+    if (response.status === 401 && !['/login','/register'].includes(path)) {
       $$('dialog[open]').forEach(d => d.close());
       await boot();
     }
@@ -389,20 +389,53 @@ function manualDialog() {
 async function boot() {
   const session = await api('/session'); csrfToken = session.csrf;
   $('#boot').hidden = true; $('#login-screen').hidden = session.authenticated; $('#app').hidden = !session.authenticated;
-  $('#setup-notice').hidden = session.configured; $('#login-password').disabled = !session.configured;
-  $('#login-form button').disabled = !session.configured;
-  if (session.authenticated) { state = await api('/state'); render(); }
+  $('#setup-notice').hidden = session.configured;
+  if (session.authenticated) {
+    $('#current-username').textContent = session.username;
+    state = await api('/state'); render();
+  } else {
+    state = undefined;
+    $('#current-username').textContent = '个人空间';
+    $$('dialog[open]').forEach(d => d.close());
+  }
 }
+$('#show-register').addEventListener('click', () => {
+  $('#login-form').hidden = true; $('#register-form').hidden = false;
+  $('#register-error').textContent = ''; $('#register-username').focus();
+});
+$('#show-login').addEventListener('click', () => {
+  $('#register-form').hidden = true; $('#login-form').hidden = false;
+  $('#login-error').textContent = ''; $('#login-username').focus();
+});
 $('#login-form').addEventListener('submit', async event => {
   event.preventDefault();
   if (busy) return;
-  busy=true; const button=$('#login-form button'); button.disabled=true; $('#login-error').textContent='';
-  try { const result = await api('/login',{password:$('#login-password').value}); csrfToken=result.csrf; $('#login-password').value=''; await boot(); }
+  busy=true; const button=$('#login-form button[type=submit]'); button.disabled=true; $('#login-error').textContent='';
+  try { const result = await api('/login',{username:$('#login-username').value,password:$('#login-password').value}); csrfToken=result.csrf; $('#login-password').value=''; await boot(); }
   catch(error) {$('#login-error').textContent=error.message;}
   finally {busy=false;button.disabled=false;}
 });
+$('#register-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  if (busy) return;
+  if ($('#register-password').value !== $('#register-confirm').value) {
+    $('#register-error').textContent = '两次输入的密码不一致。'; return;
+  }
+  busy=true; const button=$('#register-form button[type=submit]'); button.disabled=true; $('#register-error').textContent='';
+  try {
+    const result = await api('/register',{username:$('#register-username').value,
+      password:$('#register-password').value,invite_code:$('#register-invite').value});
+    csrfToken=result.csrf; $('#register-form').reset(); await boot();
+  } catch(error) {$('#register-error').textContent=error.message;}
+  finally {busy=false;button.disabled=false;}
+});
 $('#refresh-button').addEventListener('click',()=>run(async()=>{state=await api('/state');render();toast('已读取最新数据');}));
-async function logout() { await api('/logout',{}); await boot(); }
+async function logout() {
+  await api('/logout',{});
+  $('#login-form').reset(); $('#register-form').reset();
+  $('#register-form').hidden = true; $('#login-form').hidden = false;
+  await boot();
+}
 $('#logout-button').addEventListener('click',()=>run(logout));
 window.addEventListener('hashchange',()=>{if(state)render();});
 document.addEventListener('click',event=>{
@@ -519,7 +552,7 @@ document.addEventListener('change',event=>{
 });
 document.addEventListener('submit',event=>{
   const form=event.target;
-  if(form.id==='login-form') return;
+  if(form.id==='login-form' || form.id==='register-form') return;
   event.preventDefault();
   const base=formContext.get(form)||context();
   const values=Object.fromEntries(new FormData(form));

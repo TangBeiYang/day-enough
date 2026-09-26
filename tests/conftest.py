@@ -11,7 +11,7 @@ class Browser:
     def __init__(self, app):
         self.client = app.test_client()
         self.csrf = self.client.get('/api/session').json['csrf']
-        response = self.client.post('/api/login', json={'password': PASSWORD}, headers={'X-CSRF-Token': self.csrf})
+        response = self.client.post('/api/login', json={'username': 'owner', 'password': PASSWORD}, headers={'X-CSRF-Token': self.csrf})
         assert response.status_code == 200
         self.csrf = response.json['csrf']
 

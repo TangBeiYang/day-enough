@@ -330,8 +330,9 @@ def test_existing_database_migration_preserves_references_and_is_repeatable(tmp_
         assert db.execute('SELECT task_id FROM items').fetchone()[0] == 'task'
         assert db.execute('SELECT minutes FROM work_logs').fetchone()[0] == 10
         assert db.execute("SELECT value FROM meta WHERE key='revision'").fetchone()[0] == '17'
+        assert db.execute("SELECT username FROM users WHERE id='owner'").fetchone()[0] == 'owner'
         assert list(db.execute('PRAGMA foreign_key_check')) == []
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 7
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 8
     finally:
         db.close()
 

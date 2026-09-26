@@ -28,3 +28,5 @@
 @media(max-width:620px){.stage-list-toolbar #stage-search{margin-left:0}}
 .capacity-hint{font-size:12px;color:var(--muted);margin:18px 0 8px}.capacity-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px}.capacity-grid label{font-size:11px;color:var(--muted)}.capacity-grid input{min-width:0}.date-budget-row{display:grid;grid-template-columns:minmax(0,1fr) 110px auto;align-items:center;gap:8px;margin-bottom:8px}.date-budget-row .link-button{white-space:nowrap}
 @media(max-width:620px){.capacity-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.date-budget-row{grid-template-columns:minmax(0,1fr) 85px auto;gap:5px}.date-budget-row input{padding:8px 6px;font-size:11px}}
+
+.account-panel{width:100%;max-width:350px}.account-panel .login-form{max-width:none}.account-panel .account-switch{margin:15px 0 0;text-align:center;color:var(--muted);font-size:12px}.account-switch .link-button{color:var(--green);font-size:12px;font-weight:600}.sidebar-bottom #current-username{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
