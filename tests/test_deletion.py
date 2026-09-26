@@ -58,6 +58,8 @@ def test_v4_backup_restores_without_suppression_table(browser):
     backup = browser.client.get('/api/export').json
     backup['version'] = 4
     del backup['tables']['suppressed_occurrences']
+    del backup['tables']['stages']
+    del backup['tables']['stage_targets']
     result = browser.post('/restore', {'backup': backup, 'confirmation': '恢复'})
     assert result.status_code == 200
     assert result.json['recurrences'] and result.json['tasks']

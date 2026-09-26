@@ -20,6 +20,7 @@ DayEnough is a desktop-first personal web app. It stores data on one server so t
 - Protect data against stale cross-device edits and duplicate submissions.
 - Export and restore JSON data, and make consistent online SQLite backups.
 - Review ordinary tasks, current recurring occurrences, and recurrence rules together in Task overview.
+- Create multi-day Stage plans for a weekend or holiday, track completion or time goals, and keep unfinished goals visible after the dates pass.
 
 The app uses Python 3.11+, Flask, SQLite, and plain HTML, CSS, and JavaScript. It has no frontend build step and does not depend on external fonts, an AI API, or a CDN. Production deployment uses Linux and Gunicorn.
 
@@ -66,6 +67,12 @@ Manage rules and occurrence history in **Task overview → Recurrence rules and 
 
 Task overview shows active ordinary tasks, current recurring occurrences, any older occurrences still pending, and recurrence rule controls. “Set aside for now” keeps a task's progress for later. Deleting a task requires typing a confirmation and also removes its work logs and saved plan entries. Deleting one recurring occurrence leaves its rule and other occurrences intact and prevents that occurrence from returning on refresh. Deleting a whole rule removes all its occurrences and history; pause the rule if you want to keep that history.
 
+## Stage plans
+
+Open **Stage plans** in the sidebar to set a date range for a weekend, holiday, or other short stretch. Add existing tasks or create an ordinary task inside the plan. Each goal can mean completing the task or spending a chosen number of minutes from the plan's start date onward. The detail page shares the original task's progress and editing controls. Removing a goal or deleting a Stage plan keeps its tasks and work logs.
+
+After the end date, unfinished goals stay in the plan and appear as a reminder on Today. Later work continues to count toward the goal. You can edit the plan, stop reminders by ending tracking, or resume tracking. A recurring occurrence set to **Skip missed work** cannot be added as a carry-over goal; use a task that keeps missed work pending instead. Stage goals currently do not change automatic daily recommendations. Use **Arrange today myself** from the plan detail to open the daily planner filtered to its tasks; filtering keeps any shares already selected. Future algorithm requirements are recorded in [Algorithm requirements](docs/ALGORITHM_REQUIREMENTS.md).
+
 ## Data and backups
 
 By default, the `instance/` directory contains the SQLite database and session-signing key. It is excluded from Git. Set `DAY_ENOUGH_DATA` to use another absolute data directory.
@@ -80,7 +87,7 @@ By default, the `instance/` directory contains the SQLite database and session-s
 
 The backup command uses SQLite's backup API, refuses to overwrite an existing file, and verifies database integrity. Do not copy a live SQLite main file directly because unmerged data may still be in its WAL. A full SQLite backup includes the password hash and should be protected like the task data.
 
-On startup, existing databases are automatically upgraded by adding the new fields and recurrence table. Back up before upgrading and restart the app after updating the code. JSON exports use version 5; version 1–4 backups can still be restored. Existing dates, progress, deadlines, and set-aside history are preserved. Dates act as completion targets; each occurrence stores its cycle end so later rule edits cannot change its expiry. Older app versions cannot read version 5 backups.
+On startup, existing databases are automatically upgraded with the Stage plan tables. Back up before upgrading and restart the app after updating the code. JSON exports use version 6; version 1–5 backups can still be restored. Existing dates, progress, deadlines, and set-aside history are preserved. Dates act as completion targets; each occurrence stores its cycle end so later rule edits cannot change its expiry. Older app versions cannot read version 6 backups.
 
 ## Verification
 

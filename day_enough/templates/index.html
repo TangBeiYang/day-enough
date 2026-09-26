@@ -7,8 +7,8 @@
   <meta name="description" content="DayEnough，帮你决定今天做什么、做到多少就够了。">
   <title>DayEnough · 今天，适量就好</title>
   <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
-  <link rel="stylesheet" href="{{ url_for('static', filename='app.css', v='manual-scroll-7') }}">
-  <script src="{{ url_for('static', filename='app.js', v='manual-plan-6') }}" defer></script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css', v='stages-10') }}">
+  <script src="{{ url_for('static', filename='app.js', v='stages-10') }}" defer></script>
 </head>
 <body>
   <div id="boot" class="boot" role="status">正在打开 DayEnough…</div>
@@ -17,7 +17,7 @@
     <div class="login-panel"><form id="login-form" class="login-form"><p class="eyebrow">WELCOME BACK</p><h2>回到自己的节奏</h2><p class="muted">登录后，在不同电脑上接着推进。</p><label for="login-password">个人密码</label><input id="login-password" name="password" type="password" autocomplete="current-password" required maxlength="256" placeholder="输入你的密码"><p id="login-error" class="error-text" role="alert"></p><button class="button primary wide" type="submit">进入我的一天 <span aria-hidden="true">↗</span></button><p id="setup-notice" class="muted" hidden>尚未设置个人密码，请按项目 README 完成初始化。</p></form></div>
   </section>
   <div id="app" class="app-shell" hidden>
-    <aside class="sidebar"><a href="#today" class="brand"><span class="brand-mark">d.</span> DayEnough</a><p class="sidebar-caption">把今天安排得刚刚好</p><nav aria-label="主导航"><a href="#today" data-page="today"><span aria-hidden="true">◷</span> 今天</a><a href="#tasks" data-page="tasks"><span aria-hidden="true">▤</span> 任务总览 <span id="task-count" class="count">0</span></a><a href="#settings" data-page="settings"><span aria-hidden="true">⚙</span> 设置</a></nav><div class="sidebar-note"><div class="note-symbol" aria-hidden="true">✳</div><p>一步一步，<br>也在向前。</p><span>你的精力，同样值得被照顾。</span></div><div class="sidebar-bottom"><span class="status-dot" aria-hidden="true"></span> 个人空间<button id="logout-button" class="link-button">退出</button></div></aside>
+    <aside class="sidebar"><a href="#today" class="brand"><span class="brand-mark">d.</span> DayEnough</a><p class="sidebar-caption">把今天安排得刚刚好</p><nav aria-label="主导航"><a href="#today" data-page="today"><span aria-hidden="true">◷</span> 今天</a><a href="#tasks" data-page="tasks"><span aria-hidden="true">▤</span> 任务总览 <span id="task-count" class="count">0</span></a><a href="#stages" data-page="stages"><span aria-hidden="true">▦</span> 阶段计划 <span id="stage-count" class="count" hidden>0</span></a><a href="#settings" data-page="settings"><span aria-hidden="true">⚙</span> 设置</a></nav><div class="sidebar-note"><div class="note-symbol" aria-hidden="true">✳</div><p>一步一步，<br>也在向前。</p><span>你的精力，同样值得被照顾。</span></div><div class="sidebar-bottom"><span class="status-dot" aria-hidden="true"></span> 个人空间<button id="logout-button" class="link-button">退出</button></div></aside>
     <div class="workspace"><header class="topbar"><span id="today-date"></span><div><span id="sync-status" class="sync-status" role="status">已读取最新数据</span><button id="refresh-button" class="button small ghost">↻ 刷新</button><button data-action="new-task" class="button small primary">＋ 新建任务</button></div></header>
       <div id="global-error" class="global-error" role="alert" hidden></div>
       <main id="main-content"></main>
@@ -59,11 +59,28 @@
     <label for="task-step">具体下一步 <span class="muted">（可选）</span></label><textarea id="task-step" name="next_step" rows="2" maxlength="500" placeholder="例如：先整理三篇参考文献"></textarea></details>
     <p class="form-error error-text" role="alert"></p><div class="dialog-actions"><button type="button" class="button ghost" data-close>取消</button><button id="task-save" type="submit" class="button primary">保存任务</button></div>
   </form></dialog>
+  <dialog id="stage-dialog"><form id="stage-form">
+    <div class="dialog-heading"><div><p class="eyebrow">A TIME FOR WHAT MATTERS</p><h2 id="stage-dialog-title">新建阶段计划</h2></div><button type="button" class="icon-button" data-close aria-label="关闭">×</button></div>
+    <label for="stage-title">计划名称</label><input id="stage-title" name="title" required maxlength="120" placeholder="例如：这个周末">
+    <div class="form-grid"><div><label for="stage-start">开始日期</label><input id="stage-start" name="start_date" type="date" required></div><div><label for="stage-end">结束日期</label><input id="stage-end" name="end_date" type="date" required></div></div>
+    <label for="stage-description">想完成什么（可选）</label><textarea id="stage-description" name="description" rows="2" maxlength="500" placeholder="例如：集中完成课程报告和个人项目"></textarea>
+    <p class="field-note">保存后，在计划详情中添加已有任务或新建任务，并设置本期目标。</p>
+    <p class="form-error error-text" role="alert"></p><div class="dialog-actions"><button type="button" class="button ghost" data-close>取消</button><button type="submit" class="button primary">保存阶段计划</button></div>
+  </form></dialog>
+  <dialog id="stage-target-dialog"><form id="stage-target-form">
+    <div class="dialog-heading"><div><p class="eyebrow">ONE GOAL AT A TIME</p><h2 id="stage-target-title">添加阶段目标</h2></div><button type="button" class="icon-button" data-close aria-label="关闭">×</button></div>
+    <label for="stage-target-task">选择已有任务</label><select id="stage-target-task" name="task_id" required></select>
+    <label for="stage-target-mode">这几天想做到什么程度？</label><select id="stage-target-mode" name="mode"><option value="complete">完成整个任务</option><option value="minutes">投入指定分钟</option></select>
+    <div id="stage-target-minutes-field" hidden><label for="stage-target-minutes">目标投入分钟</label><input id="stage-target-minutes" name="target_minutes" type="number" min="1" max="600000" step="1"><span class="field-note">从计划开始日起累计；计划结束后仍可继续推进。</span></div>
+    <p class="form-error error-text" role="alert"></p><div class="dialog-actions"><button type="button" class="button ghost" data-close>取消</button><button type="submit" class="button primary">保存目标</button></div>
+  </form></dialog>
   <dialog id="manual-dialog"><form id="manual-form">
     <div class="dialog-heading"><div><p class="eyebrow">YOUR DAY, YOUR WAY</p><h2>自己安排今天</h2></div><button type="button" class="icon-button" data-close aria-label="关闭">×</button></div>
     <p class="muted">勾选今天想做的任务，填写还想投入的分钟数，并调整顺序。已记录的投入、已完成和跳过的份额会保留。</p>
     <div class="form-grid"><div><label for="manual-budget">今日时间预算（分钟）</label><input id="manual-budget" name="budget" type="number" min="0" max="960" step="1" required></div><div><label for="manual-energy">此刻精力</label><select id="manual-energy" name="energy"><option value="low">有点累</option><option value="medium">还不错</option><option value="high">很充沛</option></select></div></div>
+    <div id="manual-stage-field" hidden><label for="manual-stage-filter">阶段计划（可选）</label><select id="manual-stage-filter"></select></div>
     <label for="manual-search">挑选任务</label><input id="manual-search" type="search" placeholder="搜索普通任务或当前周期任务">
+    <span class="field-note">筛选只改变显示，不会取消已经勾选的任务。</span>
     <div id="manual-list" class="manual-list"></div>
     <p id="manual-summary" class="manual-summary" role="status"></p>
     <p id="manual-warning" class="manual-warning" role="status" hidden></p>

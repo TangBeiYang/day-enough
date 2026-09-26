@@ -97,6 +97,8 @@ def test_v2_backup_and_database_upgrade(browser, tmp_path):
     backup = browser.client.get('/api/export').json
     backup['version'] = 2
     del backup['tables']['suppressed_occurrences']
+    del backup['tables']['stages']
+    del backup['tables']['stage_targets']
     for task in backup['tables']['tasks']:
         del task['cycle_end']
     for rule in backup['tables']['recurrences']:
@@ -279,7 +281,7 @@ def test_backup_v2_roundtrip_and_invalid_rules(browser):
     task = browser.state()['tasks'][0]
     browser.post('/tasks/' + task['id'] + '/work', {'minutes': 5})
     backup = browser.client.get('/api/export').json
-    assert backup['version'] == 5
+    assert backup['version'] == 6
     response = browser.post('/restore', {'backup': backup, 'confirmation': '恢复'})
     assert response.status_code == 200, response.json
     assert browser.client.get('/api/export').json == backup
@@ -298,6 +300,8 @@ def test_old_json_backup_restores_with_empty_schedule(browser):
     backup['version'] = 1
     del backup['tables']['recurrences']
     del backup['tables']['suppressed_occurrences']
+    del backup['tables']['stages']
+    del backup['tables']['stage_targets']
     for row in backup['tables']['tasks']:
         for key in ('planned_date', 'recurrence_id', 'occurrence_date', 'missed_policy', 'missed', 'cycle_end'):
             del row[key]
@@ -327,7 +331,7 @@ def test_existing_database_migration_preserves_references_and_is_repeatable(tmp_
         assert db.execute('SELECT minutes FROM work_logs').fetchone()[0] == 10
         assert db.execute("SELECT value FROM meta WHERE key='revision'").fetchone()[0] == '17'
         assert list(db.execute('PRAGMA foreign_key_check')) == []
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 5
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 6
     finally:
         db.close()
 
@@ -388,6 +392,8 @@ def test_v3_backup_upgrades_cycle_snapshot(browser):
     backup = browser.client.get('/api/export').json
     backup['version'] = 3
     del backup['tables']['suppressed_occurrences']
+    del backup['tables']['stages']
+    del backup['tables']['stage_targets']
     for task in backup['tables']['tasks']:
         del task['cycle_end']
     result = browser.post('/restore', {'backup': backup, 'confirmation': '恢复'})

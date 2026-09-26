@@ -46,6 +46,25 @@ CREATE TABLE IF NOT EXISTS suppressed_occurrences (
  occurrence_date TEXT NOT NULL,
  PRIMARY KEY(recurrence_id, occurrence_date)
 );
+CREATE TABLE IF NOT EXISTS stages (
+ id TEXT PRIMARY KEY,
+ title TEXT NOT NULL CHECK(length(title) BETWEEN 1 AND 120),
+ start_date TEXT NOT NULL,
+ end_date TEXT NOT NULL CHECK(end_date >= start_date),
+ description TEXT NOT NULL DEFAULT '' CHECK(length(description)<=500),
+ status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','closed')),
+ version INTEGER NOT NULL DEFAULT 1 CHECK(version>0),
+ created_at TEXT NOT NULL,
+ updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS stage_targets (
+ stage_id TEXT NOT NULL REFERENCES stages(id),
+ task_id TEXT NOT NULL REFERENCES tasks(id),
+ mode TEXT NOT NULL CHECK(mode IN ('complete','minutes')),
+ target_minutes INTEGER NOT NULL CHECK((mode='complete' AND target_minutes=0) OR (mode='minutes' AND target_minutes BETWEEN 1 AND 600000)),
+ position INTEGER NOT NULL,
+ PRIMARY KEY(stage_id,task_id)
+);
 CREATE TABLE IF NOT EXISTS plans (
  day TEXT PRIMARY KEY,
  budget INTEGER NOT NULL CHECK(budget BETWEEN 0 AND 960),

@@ -3,7 +3,7 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const labels = {low: '低', medium: '中', high: '高'};
-let state, csrfToken, busy = false, filter = 'overview', search = '', confirmAction;
+let state, csrfToken, busy = false, filter = 'overview', search = '', stageFilter = 'active', confirmAction;
 let toastTimer;
 const formContext = new WeakMap();
 
@@ -55,7 +55,8 @@ async function run(fn, form) {
 async function mutate(path, body = {}, base = context()) {
   state = await api(path, body, base); render();
 }
-function page() { return ['today','tasks','settings'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'today'; }
+function page() { const route=location.hash.slice(1).split('/')[0]; return ['today','tasks','stages','settings'].includes(route) ? route : 'today'; }
+function currentStage() { return state.stages.find(s=>s.id===location.hash.slice(8)); }
 function dateLabel(day) {
   return new Intl.DateTimeFormat('zh-CN', {timeZone:'Asia/Shanghai', year:'numeric', month:'long', day:'numeric', weekday:'long'}).format(new Date(day + 'T12:00:00+08:00'));
 }
@@ -124,7 +125,9 @@ function todayPage() {
     }
     body += `<div class="task-stack">${state.items.map(planItem).join('')}</div>`;
   }
-  body = scheduledNotice + body;
+  const overdueStages = state.stages.filter(s=>s.overdue_count);
+  const stageNotice = overdueStages.length ? `<section class="warnings scheduled-notice"><h3>${overdueStages.length} 个阶段计划有未完成目标</h3><p>${overdueStages.map(s=>`<a href="#stages/${s.id}">${esc(s.title)} · ${s.overdue_count} 项待继续</a>`).join('、')}</p></section>` : '';
+  body = stageNotice + scheduledNotice + body;
   return intro('MAKE ROOM FOR WHAT MATTERS', '今天，适量就好。', '把重要的事往前推一点，也给自己留一点余地。', `<span class="day-stamp">${plan ? '◉ 今日安排已保存' : '○ 今天还未安排'}</span>`) +
     `<div class="today-layout"><section><div class="card summary"><div><span class="stat-label">今日时间预算</span><span class="stat-value">${budget}<span class="stat-unit">分钟</span></span></div><div><span class="stat-label">已记录投入</span><span class="stat-value">${state.worked_minutes}<span class="stat-unit">分钟</span></span></div><div><span class="stat-label">安排中还剩</span><span class="stat-value">${state.remaining_planned}<span class="stat-unit">分钟</span></span></div></div><div class="section-heading"><h2>今天先做这些</h2><span>${pending.length} 项待推进${done ? ` · ${done} 项已处理` : ''}</span></div>${body}<p class="list-note">完成「今日份额」会按安排分钟记录投入，整个任务可以继续留到明天。</p></section>
     <aside class="today-aside"><form id="plan-form" class="card plan-panel"><div class="panel-title"><span aria-hidden="true">◷</span><h3>今天的节奏</h3></div><p>不用理想状态，就按现在的你。</p><label for="plan-budget">今天有多少可支配时间？</label><div class="input-with-unit"><input id="plan-budget" name="budget" type="number" min="0" max="960" step="1" value="${budget}" required><span>分钟</span></div><fieldset><legend>此刻的精力怎么样？</legend><div class="energy-options">${[['low','◡','有点累'],['medium','◒','还不错'],['high','☀','很充沛']].map(([val,icon,label])=>`<label class="energy-option"><input type="radio" name="energy" value="${val}" ${(plan?.energy || 'medium')===val?'checked':''}><span><b aria-hidden="true">${icon}</b>${label}</span></label>`).join('')}</div></fieldset><p class="form-error error-text" role="alert"></p><button class="button primary wide" type="submit">${plan ? '重新安排今天' : '生成今日安排'} <span aria-hidden="true">↗</span></button><button class="button ghost wide manual-launch" type="button" data-action="manual-plan">自己安排</button><p class="plan-help">${plan ? '已投入时间会计入预算；已完成和跳过的份额保留。' : '高消耗任务会随精力状态适量安排，剩余时间不必填满。'}</p></form><div class="rest-note"><p class="eyebrow">A GENTLE REMINDER</p><h3>做得刚刚好，<br>也是一种进步。</h3><p>计划是为了帮你减轻负担。完成今天的份额，就可以安心停下。</p></div>${state.warnings.length ? `<section class="warnings"><h3>今日的小提醒</h3><ul>${state.warnings.map(w=>`<li>${esc(w)}</li>`).join('')}</ul></section>` : ''}</aside></div>`;
@@ -166,17 +169,49 @@ function recurrenceCards() {
 function tasksPage() {
   return intro('A PLACE FOR EVERY TASK', '任务总览', '普通任务、当前周期任务和重复规则，都可以在这里找到并修改。') + `<div class="task-toolbar"><div class="filters" role="group" aria-label="任务状态">${[['overview','任务总览'],['active','普通任务'],['recurring','周期规则与历史'],['done','已完成'],['archived','已搁置']].map(([v,l])=>`<button class="${filter===v?'active':''}" data-action="filter" data-value="${v}" aria-pressed="${filter===v}">${l} · ${v==='overview'?overviewTasks().length:v==='recurring'?state.recurrences.length:state.tasks.filter(t=>!t.recurrence_id&&t.status===v).length}</button>`).join('')}</div><input id="task-search" type="search" value="${esc(search)}" placeholder="搜索任务或下一步…" aria-label="搜索任务"></div><div id="library-results">${libraryCards()}</div>`;
 }
+function stageLabel(stage) {
+  if (stage.status === 'closed') return '已结束追踪';
+  if (stage.overdue_count) return `已过计划日期 · ${stage.overdue_count} 项待继续`;
+  if (state.day < stage.start_date) return '即将开始';
+  if (state.day > stage.end_date) return '已结束 · 目标已完成';
+  return '进行中';
+}
+function stageCard(stage) {
+  const names=stage.targets.slice(0,3).map(target=>state.tasks.find(t=>t.id===target.task_id)?.title).filter(Boolean);
+  return `<article class="card stage-card"><div class="tag-row"><span class="tag ${stage.overdue_count?'high':''}">${stageLabel(stage)}</span><span>${esc(stage.start_date)} — ${esc(stage.end_date)}</span></div><h2><a href="#stages/${stage.id}">${esc(stage.title)}</a></h2><p class="muted">${stage.targets.length} 项目标 · 已完成 ${stage.completed_count} 项${names.length?`<br>${names.map(esc).join('、')}${stage.targets.length>3?'…':''}`:''}</p><a class="button small" href="#stages/${stage.id}">查看计划 ↗</a></article>`;
+}
+function stageTargetCard(stage, target) {
+  const task=state.tasks.find(t=>t.id===target.task_id);
+  if (!task) return '';
+  const progress=Math.min(target.progress_minutes,target.target_minutes);
+  const goal=target.mode==='complete'?'完成整个任务':`投入 ${target.target_minutes} 分钟 · 已投入 ${target.progress_minutes} 分钟`;
+  return `<article class="card stage-task"><div class="stage-task-head"><h3>${esc(task.title)}</h3><span class="tag ${target.completed?'':'high'}">${target.completed?'目标已完成':task.status==='archived'?'任务已搁置':'待推进'}</span></div><div class="tag-row"><span class="tag">${task.recurrence_id?'周期任务 · 本次':'普通任务'}</span>${scheduleTags(task)}<span>预计还需 ${task.remaining_minutes} 分钟</span></div><p class="stage-goal">本期目标：${goal}</p>${target.mode==='minutes'?`<progress max="${target.target_minutes}" value="${progress}" aria-label="${esc(task.title)} 阶段目标进度"></progress>`:''}${task.next_step?`<p class="next-step">↳ ${esc(task.next_step)}</p>`:''}<div class="task-actions"><button class="button small" data-action="edit-task" data-id="${task.id}">编辑任务</button>${task.status==='active'?`<button class="link-button" data-action="work" data-id="${task.id}">记录投入</button><button class="link-button" data-action="complete-task" data-id="${task.id}">${task.recurrence_id?'本次完成':'全部完成'}</button>`:task.status==='archived'&&task.remaining_minutes>0&&!task.missed?`<button class="link-button" data-action="activate-task" data-id="${task.id}">继续推进</button>`:''}${stage.status==='active'?`<button class="link-button" data-action="edit-stage-target" data-id="${stage.id}" data-task="${task.id}">调整本期目标</button><button class="link-button" data-action="remove-stage-target" data-id="${stage.id}" data-task="${task.id}">移出计划</button>`:''}</div></article>`;
+}
+function stageDetail(stage) {
+  const pending=stage.targets.filter(t=>!t.completed), completed=stage.targets.filter(t=>t.completed);
+  const notice=stage.overdue_count?`<section class="warnings stage-overdue"><h3>计划日期已结束，还有 ${stage.overdue_count} 项目标待继续</h3><p>目标继续保留，后续投入仍会累计。本计划暂不改变今日自动推荐；可以用「自己安排」挑选今天要做的任务。</p></section>`:'';
+  return `<div class="stage-back"><a href="#stages">← 返回阶段计划</a></div>${intro('A TIME FOR WHAT MATTERS',esc(stage.title),`${esc(stage.start_date)} — ${esc(stage.end_date)} · ${stageLabel(stage)}`)}${stage.description?`<p class="stage-description">${esc(stage.description)}</p>`:''}<div class="stage-toolbar"><button class="button small" data-action="edit-stage" data-id="${stage.id}">编辑计划</button><button class="button small ghost" data-action="stage-status" data-id="${stage.id}">${stage.status==='closed'?'恢复追踪':'结束追踪'}</button><button class="link-button" data-action="delete-stage" data-id="${stage.id}">删除计划</button></div>${stage.status==='closed'?'<p class="muted">已停止提醒；原任务继续保留，其投入仍会更新这里的进度。</p>':''}${notice}<div class="card stage-summary"><div><b>${stage.targets.length}</b><span>项本期目标</span></div><div><b>${stage.completed_count}</b><span>项已完成</span></div><div><b>${pending.length}</b><span>项待推进</span></div></div>${stage.status==='active'?`<div class="stage-add"><button class="button primary" data-action="add-stage-target" data-id="${stage.id}">＋ 添加已有任务</button><button class="button" data-action="new-stage-task" data-id="${stage.id}">＋ 新建任务</button><button class="button ghost" data-action="stage-manual" data-id="${stage.id}">自己安排今天</button></div>`:''}<div class="section-heading"><h2>待推进 · ${pending.length}</h2></div>${pending.length?`<div class="task-stack">${pending.map(t=>stageTargetCard(stage,t)).join('')}</div>`:empty('✓','这里暂时没有待推进目标',stage.targets.length?'本期目标已完成，可以按需要继续添加。':'先添加一件想在这段时间推进的事。')}<details class="stage-completed"><summary>已完成目标 · ${completed.length}</summary><div class="task-stack">${completed.map(t=>stageTargetCard(stage,t)).join('')||'<p class="muted">还没有已完成目标。</p>'}</div></details>`;
+}
+function stagesPage() {
+  const stage=currentStage();
+  if (location.hash.startsWith('#stages/') && stage) return stageDetail(stage);
+  const visible=state.stages.filter(s=>stageFilter==='all'||(stageFilter==='active'?s.status==='active':s.status==='closed'));
+  visible.sort((a,b)=>Number(!!b.overdue_count)-Number(!!a.overdue_count)||b.start_date.localeCompare(a.start_date));
+  return intro('MAKE SPACE FOR A FEW DAYS','阶段计划','为周末、假期或一段集中时间，定下想完成的事。','<button class="button primary" data-action="new-stage">＋ 新建阶段计划</button>')+`<div class="filters stage-filters" role="group" aria-label="阶段计划状态">${[['active','进行中与待继续'],['closed','已结束追踪'],['all','全部']].map(([value,label])=>`<button data-action="stage-filter" data-value="${value}" class="${stageFilter===value?'active':''}" aria-pressed="${stageFilter===value}">${label}</button>`).join('')}</div>${visible.length?`<div class="stage-grid">${visible.map(stageCard).join('')}</div>`:empty('▦',stageFilter==='active'?'从一个周末计划开始':'这里还没有阶段计划',stageFilter==='active'?'选择日期，再把想推进的任务放进来。':'可以切换筛选查看其他计划。',stageFilter==='active'?'<button class="button primary" data-action="new-stage">＋ 新建阶段计划</button>':'')}`;
+}
 function settingsPage() {
   return intro('YOUR OWN RHYTHM', '按你的方式来。', '简单的设置，留给真正需要的事。') + `<div class="settings-grid"><section class="card settings-card"><h2>默认每日时间</h2><p>生成新一天的安排时使用，也用于估算截止风险。当天可以单独修改。</p><form id="settings-form"><label for="default-minutes">每天默认可支配分钟</label><input id="default-minutes" name="default_minutes" type="number" min="0" max="960" step="1" required value="${state.settings.default_minutes}"><p class="form-error error-text" role="alert"></p><button class="button primary" type="submit">保存设置</button></form><p class="footnote">日期统一按中国标准时间（Asia/Shanghai）计算。</p></section><section class="card settings-card"><h2>带走你的数据</h2><p>导出所有任务、每日安排和投入记录。备份不包含密码或登录信息。</p><div class="backup-actions"><a href="/api/export" class="button" download>↓ 导出 JSON 备份</a><button class="button ghost" data-action="import">↑ 从备份恢复</button><input id="backup-file" type="file" accept="application/json,.json" hidden></div><p class="footnote">恢复会替换全部现有任务数据。建议先导出当前备份。</p></section><section class="card settings-card"><h2>个人密码</h2><p>修改后，其他电脑上的会话需要重新登录。</p><form id="password-form"><div class="password-fields"><div><label for="old-password">当前密码</label><input id="old-password" name="old_password" type="password" autocomplete="current-password" maxlength="256" required></div><div><label for="new-password">新密码（至少 12 个字符）</label><input id="new-password" name="new_password" type="password" autocomplete="new-password" minlength="12" maxlength="256" required></div></div><p class="form-error error-text" role="alert"></p><button class="button primary" type="submit">更新密码</button></form></section><section class="card settings-card"><p class="eyebrow">SMALL STEPS, STEADY DAYS</p><h2>为你自己留一份余地</h2><p>推荐依据截止日期、剩余用时、后果严重度和当天精力。它是一份可以调整的建议，不是对你的评判。</p><p>第一版不会自动学习你的状态。用几天后，按实际情况修正用时估计，安排会更贴近现实。</p><button class="button ghost" data-action="logout">退出当前登录</button></section></div>`;
 }
 function render() {
   $('#today-date').textContent = dateLabel(state.day);
   $('#task-count').textContent = overviewTasks().length;
+  const overdue=state.stages.filter(s=>s.overdue_count).length;
+  $('#stage-count').hidden=!overdue; $('#stage-count').textContent=overdue;
   $$('[data-page]').forEach(a => {a.classList.toggle('active', a.dataset.page === page()); if (a.dataset.page === page()) a.setAttribute('aria-current','page'); else a.removeAttribute('aria-current');});
-  $('#main-content').innerHTML = page()==='tasks'?tasksPage():page()==='settings'?settingsPage():todayPage();
+  $('#main-content').innerHTML = page()==='tasks'?tasksPage():page()==='stages'?stagesPage():page()==='settings'?settingsPage():todayPage();
   $$('main form').forEach(f=>formContext.set(f, context()));
   $('#sync-status').textContent = '已读取最新数据';
-  document.title = `${{today:'今天', tasks:'任务总览', settings:'设置'}[page()]} · DayEnough`;
+  document.title = `${{today:'今天', tasks:'任务总览', stages:'阶段计划', settings:'设置'}[page()]} · DayEnough`;
 }
 function updateTaskKind() {
   const kind = $('#task-kind').value;
@@ -191,7 +226,8 @@ function updateTaskKind() {
   $$('[data-task-kind]').forEach(button => {
     button.setAttribute('aria-pressed', String(button.dataset.taskKind === kind));
     button.disabled = editing;
-    button.hidden = button.dataset.taskKind === 'occurrence' ? kind !== 'occurrence' : kind === 'occurrence';
+    button.hidden = (button.dataset.taskKind === 'occurrence' ? kind !== 'occurrence' : kind === 'occurrence') ||
+      (form.dataset.stage === 'true' && button.dataset.taskKind === 'recurring');
   });
   $('#recurrence-fields').hidden = !recurring;
   $('#recurrence-fields').disabled = !recurring;
@@ -227,9 +263,10 @@ function updateRuleSummary() {
   const monthlyWrap = frequency === 'monthly' && Number($('#rule-deadline').value)>0 && ($('#rule-month-day').value==='0' || Number($('#rule-deadline').value)<Number($('#rule-month-day').value));
   $('#rule-summary').textContent = `从 ${$('#task-planned').value || '所选开始日期'} 起，${schedule}计划完成，每次 ${$('#task-remaining').value || '—'} 分钟；截止：${due}${wrap?'（早于计划星期的顺延到下一周）':monthlyWrap?'（取计划日当天或之后最近的日期，必要时顺延到下个月）':''}；${$('#rule-missed').value==='skip'?'到期未完成不补做':'未完成保留待办'}。`;
 }
-function taskDialog(task, rule = null, newRule = false) {
+function taskDialog(task, rule = null, newRule = false, stage = null) {
   const form = $('#task-form'); form.reset();
   delete form.dataset.kind;
+  form.dataset.stage = stage ? 'true' : 'false';
   delete $('#rule-deadline').dataset.frequency;
   const editing = rule || task;
   $('#task-dialog-title').textContent = rule ? '调整重复规则' : task?.recurrence_id ? '调整本次任务' : task ? '调整这件事' : '添加一件要做的事';
@@ -254,7 +291,39 @@ function taskDialog(task, rule = null, newRule = false) {
   updateTaskKind();
   $('#rule-deadline').value = rule?.due_on_planned ? 'same' : String(rule?.due_day ?? -1);
   updateRuleSummary();
-  openDialog('#task-dialog', {...context(), version:editing?.version, status:task?.status});
+  openDialog('#task-dialog', {...context(), version:editing?.version, status:task?.status,
+    stageId:stage?.id, stageVersion:stage?.version});
+}
+function stageDialog(stage = null) {
+  const form=$('#stage-form'); form.reset();
+  $('#stage-dialog-title').textContent=stage?'编辑阶段计划':'新建阶段计划';
+  form.elements.title.value=stage?.title||'';
+  form.elements.start_date.value=stage?.start_date||state.day;
+  const tomorrow=new Date(state.day+'T00:00:00Z'); tomorrow.setUTCDate(tomorrow.getUTCDate()+1);
+  form.elements.end_date.value=stage?.end_date||tomorrow.toISOString().slice(0,10);
+  form.elements.description.value=stage?.description||'';
+  openDialog('#stage-dialog',{...context(),stageId:stage?.id,version:stage?.version});
+}
+function updateStageTargetMode() {
+  const minutes=$('#stage-target-mode').value==='minutes';
+  $('#stage-target-minutes-field').hidden=!minutes;
+  $('#stage-target-minutes').required=minutes;
+}
+function stageTargetDialog(stage, target = null) {
+  const form=$('#stage-target-form'); form.reset();
+  $('#stage-target-title').textContent=target?'调整本期目标':'添加阶段目标';
+  const choices=state.tasks.filter(task=>task.id===target?.task_id ||
+    (task.status==='active' && task.remaining_minutes>0 &&
+     (!task.recurrence_id || task.missed_policy==='carry') &&
+     !stage.targets.some(item=>item.task_id===task.id)));
+  $('#stage-target-task').innerHTML=choices.length?choices.map(task=>`<option value="${task.id}">${esc(task.title)}${task.recurrence_id?' · 本次':''}</option>`).join(''):'<option value="">暂无可添加的任务</option>';
+  $('#stage-target-task').value=target?.task_id||choices[0]?.id||'';
+  $('#stage-target-task').disabled=!!target;
+  $('#stage-target-mode').value=target?.mode||'complete';
+  $('#stage-target-minutes').value=target?.target_minutes||60;
+  updateStageTargetMode();
+  $('#stage-target-form button[type="submit"]').disabled=!choices.length;
+  openDialog('#stage-target-dialog',{...context(),stageId:stage.id,version:stage.version,taskId:target?.task_id});
 }
 function workDialog(task) {
   $('#work-form').reset(); $('#work-task-title').textContent = task.title;
@@ -263,6 +332,12 @@ function workDialog(task) {
   openDialog('#work-dialog', {...context(), taskId:task.id});
 }
 function manualRows() { return $$('.manual-row', $('#manual-list')); }
+function filterManualRows() {
+  const query=$('#manual-search').value.trim().toLowerCase();
+  const stage=state.stages.find(s=>s.id===$('#manual-stage-filter').value);
+  manualRows().forEach(row=>row.hidden=!!query&&!row.textContent.toLowerCase().includes(query) ||
+    !!stage&&!stage.targets.some(target=>target.task_id===row.dataset.id));
+}
 function updateManualSummary() {
   const rows = manualRows();
   const chosen = rows.filter(row => $('.manual-check', row).checked);
@@ -275,11 +350,15 @@ function updateManualSummary() {
   warning.hidden = total <= budget;
   warning.textContent = total > budget ? `比今日预算多 ${total-budget} 分钟。可以调整份额或预算，也可以按自己的判断直接保存。` : '';
 }
-function manualDialog() {
+function manualDialog(stageId = '') {
   const planForm = $('#plan-form');
   $('#manual-budget').value = $('#plan-budget').value;
   $('#manual-energy').value = $('input[name="energy"]:checked', planForm).value;
   $('#manual-search').value = '';
+  const activeStages=state.stages.filter(s=>s.status==='active');
+  $('#manual-stage-field').hidden=!activeStages.length;
+  $('#manual-stage-filter').innerHTML='<option value="">所有任务</option>'+activeStages.map(s=>`<option value="${s.id}">${esc(s.title)}</option>`).join('');
+  $('#manual-stage-filter').value=stageId;
   const pending = state.items.filter(item => item.status === 'pending' && item.task_status === 'active');
   const ordered = [...pending.map(item => state.tasks.find(task => task.id === item.task_id)),
     ...state.tasks.filter(task => task.status === 'active' && task.remaining_minutes > 0 && !pending.some(item => item.task_id === task.id))].filter(Boolean);
@@ -288,6 +367,7 @@ function manualDialog() {
     const minutes = item ? Math.min(task.remaining_minutes, Math.max(1, item.planned_minutes-item.done_minutes)) : Math.min(30, task.remaining_minutes);
     return `<div class="manual-row" data-id="${esc(task.id)}"><label class="manual-task"><input class="manual-check" type="checkbox" ${item?'checked':''}><span><strong>${esc(task.title)}</strong><small>${task.recurrence_id?'周期任务 · 本次':'普通任务'} · 还需约 ${task.remaining_minutes} 分钟${task.planned_date ? ` · 计划 ${esc(task.planned_date)}` : ''}</small></span></label><div class="manual-row-tools"><label>安排 <input class="manual-minutes" type="number" min="1" max="${task.remaining_minutes}" step="1" value="${minutes}" ${item?'':'disabled'} required> 分钟</label><button type="button" class="link-button" data-manual-move="up" aria-label="上移 ${esc(task.title)}">↑</button><button type="button" class="link-button" data-manual-move="down" aria-label="下移 ${esc(task.title)}">↓</button></div></div>`;
   }).join('') : '<p class="muted">目前没有可安排的任务。可以先在任务总览添加任务。</p>';
+  filterManualRows();
   updateManualSummary();
   openDialog('#manual-dialog');
 }
@@ -327,8 +407,27 @@ document.addEventListener('click',event=>{
   }
   const close=event.target.closest('[data-close]'); if(close && !busy) {close.closest('dialog').close(); return;}
   const button=event.target.closest('[data-action]'); if(!button || busy) return;
-  const {action,id,value}=button.dataset;
+  const {action,id,value,task:targetTaskId}=button.dataset;
   const task=state?.tasks.find(t=>t.id===id);
+  const stage=state?.stages.find(s=>s.id===id);
+  if(action==='new-stage') return stageDialog();
+  if(action==='stage-manual') {location.hash='#today';render();return manualDialog(id);}
+  if(action==='edit-stage') return stageDialog(stage);
+  if(action==='stage-filter') {stageFilter=value;render();return;}
+  if(action==='add-stage-target') return stageTargetDialog(stage);
+  if(action==='edit-stage-target') return stageTargetDialog(stage,stage.targets.find(t=>t.task_id===targetTaskId));
+  if(action==='new-stage-task') return taskDialog(null,null,false,stage);
+  if(action==='remove-stage-target') return run(async()=>{
+    await mutate(`/stages/${id}/targets/${targetTaskId}/remove`,{version:stage.version});toast('已从阶段计划移出，原任务仍保留。');
+  });
+  if(action==='stage-status') return run(async()=>{
+    await mutate(`/stages/${id}/status`,{version:stage.version,status:stage.status==='active'?'closed':'active'});
+    toast(stage.status==='active'?'已结束追踪，任务仍保留。':'已恢复追踪。');
+  });
+  if(action==='delete-stage') return confirm('删除这个阶段计划？',`「${stage.title}」的阶段目标会删除，原任务和投入记录保留。`,async base=>{
+    await mutate(`/stages/${id}/delete`,{version:stage.version,confirmation:$('#restore-word').value},base);
+    location.hash='#stages';toast('阶段计划已删除，原任务仍保留。');
+  },'删除');
   if(action==='new-task') return taskDialog();
   if(action==='manual-plan') return manualDialog();
   if(action==='new-rule') return taskDialog(null, null, true);
@@ -380,15 +479,14 @@ document.addEventListener('click',event=>{
   }
 });
 document.addEventListener('input',event=>{
-  if(event.target.id==='manual-search') {
-    const query=event.target.value.trim().toLowerCase();
-    manualRows().forEach(row=>row.hidden=!row.textContent.toLowerCase().includes(query));
-  }
+  if(event.target.id==='manual-search') filterManualRows();
   if(event.target.id==='manual-budget'||event.target.classList.contains('manual-minutes')) updateManualSummary();
   if(event.target.closest('#task-form')) updateRuleSummary();
   if(event.target.id==='task-search') {search=event.target.value;$('#library-results').innerHTML=libraryCards();}
 });
 document.addEventListener('change',event=>{
+  if(event.target.id==='manual-stage-filter') {filterManualRows();return;}
+  if(event.target.id==='stage-target-mode') {updateStageTargetMode();return;}
   if(event.target.classList.contains('manual-check')) updateManualSummary();
   if(event.target.id==='task-kind'||event.target.id==='rule-frequency') {updateTaskKind();return;}
   if(event.target.closest('#task-form')) updateRuleSummary();
@@ -417,9 +515,26 @@ document.addEventListener('submit',event=>{
       body.due_on_planned = values.frequency === 'daily' ? form.elements.due_on_planned.checked : values.due_day === 'same';
       body.due_day = values.frequency === 'daily' || body.due_on_planned ? -1 : Number(values.due_day);
     } else if(values.task_id) body.status=body.remaining_minutes>0&&base.status==='done'?'active':base.status;
+    if(base.stageId && !values.task_id) {body.stage_id=base.stageId;body.stage_version=base.stageVersion;}
     const collection = recurring ? '/recurrences' : '/tasks';
     await mutate(values.task_id?`${collection}/${values.task_id}`:collection,body,{revision:base.revision,day:base.day});
+    if(base.stageId && !values.task_id) location.hash=`#stages/${base.stageId}`;
     $('#task-dialog').close();toast(recurring?'周期规则已保存，今日计划仍需主动重排。':values.task_id?'任务已更新。已有计划不会自动增加份额。':'任务已添加，已进入推荐候选；生成或重排时可安排。');
+  },form);
+  if(form.id==='stage-form') return run(async()=>{
+    const oldIds=new Set(state.stages.map(s=>s.id));
+    await mutate(base.stageId?`/stages/${base.stageId}`:'/stages',
+      {...values,...(base.stageId?{version:base.version}:{})},base);
+    $('#stage-dialog').close();
+    const stageId=base.stageId||state.stages.find(s=>!oldIds.has(s.id))?.id;
+    if(stageId) location.hash=`#stages/${stageId}`;
+    toast('阶段计划已保存，可以添加本期目标。');
+  },form);
+  if(form.id==='stage-target-form') return run(async()=>{
+    await mutate(`/stages/${base.stageId}/targets`,{
+      version:base.version,task_id:base.taskId||values.task_id,
+      mode:values.mode,target_minutes:values.mode==='minutes'?Number(values.target_minutes):0},base);
+    $('#stage-target-dialog').close();toast('本期目标已保存。');
   },form);
   if(form.id==='work-form') return run(async()=>{
     await mutate(`/tasks/${base.taskId}/work`,{minutes:Number(values.minutes)},{revision:base.revision,day:base.day});$('#work-dialog').close();toast('这次推进，记下了。');

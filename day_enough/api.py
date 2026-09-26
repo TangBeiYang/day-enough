@@ -94,10 +94,24 @@ def snapshot(db):
     recurrences = [dict(row) for row in db.execute('SELECT * FROM recurrences ORDER BY created_at DESC,id')]
     for rule in recurrences:
         rule['weekdays'] = json.loads(rule['weekdays'])
+    stages = [dict(row) for row in db.execute('SELECT * FROM stages ORDER BY start_date DESC,created_at DESC,id')]
+    for stage in stages:
+        stage['targets'] = [dict(row) for row in db.execute('''SELECT g.task_id,g.mode,g.target_minutes,g.position,
+            COALESCE(SUM(l.minutes),0) AS progress_minutes,t.status AS task_status
+            FROM stage_targets g JOIN tasks t ON t.id=g.task_id
+            LEFT JOIN work_logs l ON l.task_id=g.task_id AND l.day>=?
+            WHERE g.stage_id=? GROUP BY g.task_id ORDER BY g.position,g.task_id''',
+            (stage['start_date'], stage['id']))]
+        for target in stage['targets']:
+            target['completed'] = target['task_status'] == 'done' or (
+                target['mode'] == 'minutes' and target['progress_minutes'] >= target['target_minutes'])
+        stage['completed_count'] = sum(target['completed'] for target in stage['targets'])
+        stage['overdue_count'] = (len(stage['targets']) - stage['completed_count']
+                                  if stage['status'] == 'active' and day > stage['end_date'] else 0)
     handled = {i['task_id'] for i in items}
     unplanned = [t['id'] for t in tasks if t['status'] == 'active' and t['id'] not in handled]
     return {'day': day, 'revision': int(value(db, 'revision')), 'tasks': tasks,
-            'recurrences': recurrences, 'unplanned_scheduled': unplanned,
+            'recurrences': recurrences, 'stages': stages, 'unplanned_scheduled': unplanned,
             'plan': plan, 'items': items, 'worked_minutes': totals[0],
             'remaining_planned': sum(allocations.values()), 'warnings': warnings,
             'settings': {'default_minutes': default, 'timezone': 'Asia/Shanghai'}}
@@ -241,8 +255,17 @@ def add_task(db, data):
     if fields[4] <= 0:
         abort(400, '新任务的预计用时须大于 0。')
     planned = planned_date_field(data, fields[1])
+    stage_id = data.get('stage_id')
+    stage = stage_by_id(db, stage_id, {'version': data.get('stage_version')}) if stage_id else None
+    if stage and stage['status'] != 'active':
+        abort(400, '已结束追踪的阶段计划不能添加任务。')
+    task_id = str(uuid4())
     db.execute('''INSERT INTO tasks(id,title,due_date,consequence,energy,remaining_minutes,next_step,created_at,updated_at,planned_date)
-                  VALUES (?,?,?,?,?,?,?,?,?,?)''', (str(uuid4()), *fields, now(), now(), planned))
+                  VALUES (?,?,?,?,?,?,?,?,?,?)''', (task_id, *fields, now(), now(), planned))
+    if stage:
+        position = db.execute('SELECT COALESCE(MAX(position),-1)+1 FROM stage_targets WHERE stage_id=?', (stage_id,)).fetchone()[0]
+        db.execute('INSERT INTO stage_targets VALUES (?,?,?,?,?)', (stage_id, task_id, 'complete', 0, position))
+        db.execute('UPDATE stages SET version=version+1,updated_at=? WHERE id=?', (now(), stage_id))
 
 
 @bp.post('/tasks/<task_id>')
@@ -269,6 +292,7 @@ def edit_task(db, data, task_id):
 
 
 def remove_task_data(db, task_id):
+    db.execute('DELETE FROM stage_targets WHERE task_id=?', (task_id,))
     db.execute('DELETE FROM items WHERE task_id=?', (task_id,))
     db.execute('DELETE FROM work_logs WHERE task_id=?', (task_id,))
     db.execute('DELETE FROM tasks WHERE id=?', (task_id,))
@@ -298,6 +322,102 @@ def delete_recurrence(db, data, rule_id):
         remove_task_data(db, row['id'])
     db.execute('DELETE FROM suppressed_occurrences WHERE recurrence_id=?', (rule_id,))
     db.execute('DELETE FROM recurrences WHERE id=?', (rule_id,))
+
+
+def stage_by_id(db, stage_id, data):
+    stage = db.execute('SELECT * FROM stages WHERE id=?', (stage_id,)).fetchone()
+    if not stage:
+        abort(404, '阶段计划不存在。')
+    if data.get('version') != stage['version']:
+        abort(409, '阶段计划已有新版本，请刷新。')
+    return stage
+
+
+def stage_fields(data):
+    title = text_field(data, 'title', 120)
+    description = text_field(data, 'description', 500, False)
+    start = optional_date_field(data.get('start_date'), '开始日期')
+    end = optional_date_field(data.get('end_date'), '结束日期')
+    if not start or not end or start > end or end > '9998-12-31':
+        abort(400, '请填写有效的阶段起止日期，结束日期不能早于开始日期。')
+    return title, start, end, description
+
+
+@bp.post('/stages')
+@mutation
+def add_stage(db, data):
+    fields = stage_fields(data)
+    db.execute('''INSERT INTO stages(id,title,start_date,end_date,description,created_at,updated_at)
+                  VALUES (?,?,?,?,?,?,?)''', (str(uuid4()), *fields, now(), now()))
+
+
+@bp.post('/stages/<stage_id>')
+@mutation
+def edit_stage(db, data, stage_id):
+    stage_by_id(db, stage_id, data)
+    fields = stage_fields(data)
+    db.execute('''UPDATE stages SET title=?,start_date=?,end_date=?,description=?,
+                  version=version+1,updated_at=? WHERE id=?''', (*fields, now(), stage_id))
+
+
+@bp.post('/stages/<stage_id>/status')
+@mutation
+def stage_status(db, data, stage_id):
+    stage_by_id(db, stage_id, data)
+    status = data.get('status')
+    if status not in ('active', 'closed'):
+        abort(400, '阶段计划状态无效。')
+    db.execute('UPDATE stages SET status=?,version=version+1,updated_at=? WHERE id=?',
+               (status, now(), stage_id))
+
+
+@bp.post('/stages/<stage_id>/delete')
+@mutation
+def delete_stage(db, data, stage_id):
+    stage_by_id(db, stage_id, data)
+    if data.get('confirmation') != '删除':
+        abort(400, '请输入「删除」确认。')
+    db.execute('DELETE FROM stage_targets WHERE stage_id=?', (stage_id,))
+    db.execute('DELETE FROM stages WHERE id=?', (stage_id,))
+
+
+@bp.post('/stages/<stage_id>/targets')
+@mutation
+def save_stage_target(db, data, stage_id):
+    stage = stage_by_id(db, stage_id, data)
+    if stage['status'] != 'active':
+        abort(400, '请先恢复追踪，再调整目标。')
+    task_id = data.get('task_id')
+    if not isinstance(task_id, str):
+        abort(400, '请选择任务。')
+    task = task_by_id(db, task_id)
+    existing = db.execute('SELECT * FROM stage_targets WHERE stage_id=? AND task_id=?', (stage_id, task_id)).fetchone()
+    if not existing and task['status'] != 'active':
+        abort(400, '只能添加待推进的任务。')
+    if task['recurrence_id'] and task['missed_policy'] == 'skip':
+        abort(400, '这次周期任务设置为漏做不补做，不能加入可顺延的阶段计划。请先将规则改为保留待办。')
+    mode = data.get('mode')
+    if mode not in ('complete', 'minutes'):
+        abort(400, '请选择完成任务或投入指定分钟。')
+    minutes = integer(data.get('target_minutes'), '目标分钟', 0 if mode == 'complete' else 1)
+    if mode == 'complete' and minutes != 0:
+        abort(400, '完成整个任务无需填写目标分钟。')
+    position = existing['position'] if existing else db.execute(
+        'SELECT COALESCE(MAX(position),-1)+1 FROM stage_targets WHERE stage_id=?', (stage_id,)).fetchone()[0]
+    db.execute('''INSERT INTO stage_targets VALUES (?,?,?,?,?) ON CONFLICT(stage_id,task_id)
+                  DO UPDATE SET mode=excluded.mode,target_minutes=excluded.target_minutes''',
+               (stage_id, task_id, mode, minutes, position))
+    db.execute('UPDATE stages SET version=version+1,updated_at=? WHERE id=?', (now(), stage_id))
+
+
+@bp.post('/stages/<stage_id>/targets/<task_id>/remove')
+@mutation
+def remove_stage_target(db, data, stage_id, task_id):
+    stage_by_id(db, stage_id, data)
+    if not db.execute('SELECT 1 FROM stage_targets WHERE stage_id=? AND task_id=?', (stage_id, task_id)).fetchone():
+        abort(404, '阶段目标不存在。')
+    db.execute('DELETE FROM stage_targets WHERE stage_id=? AND task_id=?', (stage_id, task_id))
+    db.execute('UPDATE stages SET version=version+1,updated_at=? WHERE id=?', (now(), stage_id))
 
 
 def recurrence_fields(data, previous=None):
