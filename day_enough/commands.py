@@ -44,8 +44,8 @@ def register(app):
     @click.password_option(confirmation_prompt=True, prompt='新的邀请码')
     def set_invite_code(password):
         """Set or rotate the registration invite code."""
-        if not 12 <= len(password) <= 128:
-            raise click.ClickException('邀请码须为 12–128 个字符。')
+        if not 3 <= len(password) <= 8:
+            raise click.ClickException('邀请码须为 3–8 个字符。')
         db = get_registry_db()
         db.execute('BEGIN IMMEDIATE')
         try:
@@ -68,6 +68,14 @@ def register(app):
             db.rollback()
             raise
         click.echo('已暂停新用户注册。')
+
+    @app.cli.command('count-users')
+    def count_users():
+        """Show how many accounts have been registered."""
+        db = get_registry_db()
+        registered = db.execute("SELECT COUNT(*) FROM users WHERE id!='owner'").fetchone()[0]
+        total = db.execute('SELECT COUNT(*) FROM users').fetchone()[0]
+        click.echo(f'已注册用户：{registered}；账号总数（含 owner）：{total}。')
 
     @app.cli.command('backup')
     @click.argument('destination', type=click.Path())

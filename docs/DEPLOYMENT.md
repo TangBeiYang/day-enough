@@ -145,4 +145,4 @@ sudo systemctl restart day-enough
 ```
 
 升级前先备份，再更新代码/依赖和重启。当前 schema 标记为 v8，启动时自动建立账号登记表并将旧数据保留给 owner，保留已有任务、计划和投入记录。新 JSON 备份仍为 v7，应用兼容恢复 v1–v6；回退旧代码时需同时恢复升级前的数据库备份。后续结构变更仍须提供显式迁移，不能只修改建表语句。
-邀请码可随时再次运行 `set-invite-code` 更换；运行 `disable-registration` 可暂停新注册，现有账号不受影响。忘记密码可运行 `set-password --username 用户名`。账号登记保存在主库，用户数据保存在 `users/`；升级前需用 ZIP 完整备份，不要只备份主库。当前登录和注册限流由 SQLite 存储，请求 IP 在 5 分钟内共 10 次额度；不信任任意客户端传入的代理 IP 头。
+邀请码长度为 3–8 个字符，可随时再次运行 `set-invite-code` 更换；运行 `disable-registration` 可暂停新注册，现有账号不受影响。运行 `count-users` 可查看注册用户数和含 owner 的账号总数；忘记密码可运行 `set-password --username 用户名`。账号登记保存在主库，用户数据保存在 `users/`；升级前需用 ZIP 完整备份，不要只备份主库。当前登录和注册限流由 SQLite 存储，请求 IP 在 5 分钟内共 10 次额度；不信任任意客户端传入的代理 IP 头。

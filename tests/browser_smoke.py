@@ -23,7 +23,7 @@ def main():
                         'SECRET_KEY':'browser-test-only-secret','TODAY':'2026-09-14'})
         with app.app_context():
             set_value(get_db(),'password_hash',generate_password_hash('browser-test-password'))
-            set_value(get_db(),'invite_code_hash',generate_password_hash('browser-invite-123'))
+            set_value(get_db(),'invite_code_hash',generate_password_hash('abc123'))
         server=make_server('127.0.0.1',0,app,threaded=True)
         thread=threading.Thread(target=server.serve_forever,daemon=True)
         thread.start()
@@ -372,7 +372,7 @@ def main():
                 newcomer.locator('#register-username').fill('新人账号')
                 newcomer.locator('#register-password').fill('new-user-password-123')
                 newcomer.locator('#register-confirm').fill('new-user-password-123')
-                newcomer.locator('#register-invite').fill('browser-invite-123')
+                newcomer.locator('#register-invite').fill('abc123')
                 newcomer.get_by_role('button',name='注册并进入').click()
                 expect(newcomer.locator('#app')).to_be_visible()
                 expect(newcomer.locator('#current-username')).to_have_text('新人账号')

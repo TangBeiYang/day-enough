@@ -36,9 +36,9 @@ python3 -m venv .venv
 .venv/bin/flask --app day_enough run --host 127.0.0.1 --port 8000
 ```
 
-Open <http://127.0.0.1:8000>. `set-password` sets the password for `owner`, which keeps all existing personal tasks; sign in with `owner` and your previous password. `set-invite-code` sets a registration code of at least 12 characters. New users need this code to register. Neither secret is stored in source code; registration is disabled until a code is set.
+Open <http://127.0.0.1:8000>. `set-password` sets the password for `owner`, which keeps all existing personal tasks; sign in with `owner` and your previous password. `set-invite-code` sets a registration code of 3–8 characters. New users need this code to register. Neither secret is stored in source code; registration is disabled until a code is set.
 
-Run `set-password --username NAME` to reset an account password (`owner` by default). Its existing sessions are invalidated while task data remains intact. Run `set-invite-code` again to rotate the code, or `disable-registration` to pause new registrations.
+Run `set-password --username NAME` to reset an account password (`owner` by default). Its existing sessions are invalidated while task data remains intact. Run `set-invite-code` again to rotate the code; if an earlier code exceeded 8 characters, set a new code after upgrading. Run `disable-registration` to pause new registrations. Run `.venv/bin/flask --app day_enough count-users` to see the registered-user count and the account total including `owner`.
 
 The Flask development server is intended only for local use.
 

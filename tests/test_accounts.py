@@ -7,12 +7,12 @@ from day_enough.db import get_db, set_value
 from conftest import Browser, PASSWORD
 
 
-def set_invite(app, code='invitation-12345'):
+def set_invite(app, code='abc'):
     result = app.test_cli_runner().invoke(args=['set-invite-code'], input=code + '\n' + code + '\n')
     assert result.exit_code == 0, result.output
 
 
-def register(app, username='alice', password='alice-password-123', code='invitation-12345'):
+def register(app, username='alice', password='alice-password-123', code='abc'):
     client = app.test_client()
     csrf = client.get('/api/session').json['csrf']
     response = client.post('/api/register', json={'username': username, 'password': password,
@@ -34,6 +34,14 @@ def add_task(client, title):
 def test_invite_rotation_registration_and_username_uniqueness(app):
     anonymous = app.test_client()
     assert anonymous.post('/api/register', json={}).status_code == 403
+    count = app.test_cli_runner().invoke(args=['count-users'])
+    assert count.exit_code == 0 and '已注册用户：0；账号总数（含 owner）：1' in count.output
+    for invalid in ('ab', 'abcdefghi'):
+        result = app.test_cli_runner().invoke(args=['set-invite-code'],
+                                              input=invalid + '\n' + invalid + '\n')
+        assert result.exit_code != 0 and '3–8' in result.output
+        _, response = register(app, code=invalid)
+        assert response.status_code == 400
     client, response = register(app)
     assert response.status_code == 503
     set_invite(app)
@@ -44,13 +52,15 @@ def test_invite_rotation_registration_and_username_uniqueness(app):
     assert client.get('/api/session').json['username'] == 'alice'
     _, response = register(app, username='ＡＬＩＣＥ')
     assert response.status_code == 409
-    set_invite(app, 'new-invite-12345')
+    set_invite(app, '12345678')
     _, response = register(app, username='bob')
     assert response.status_code == 403
-    _, response = register(app, username='bob', code='new-invite-12345')
+    _, response = register(app, username='bob', code='12345678')
     assert response.status_code == 200
+    count = app.test_cli_runner().invoke(args=['count-users'])
+    assert count.exit_code == 0 and '已注册用户：2；账号总数（含 owner）：3' in count.output
     assert app.test_cli_runner().invoke(args=['disable-registration']).exit_code == 0
-    _, response = register(app, username='charlie', code='new-invite-12345')
+    _, response = register(app, username='charlie', code='12345678')
     assert response.status_code == 503
     assert client.get('/api/state').status_code == 200
 
@@ -59,7 +69,7 @@ def test_bad_invites_are_rate_limited(app):
     set_invite(app)
     client = app.test_client()
     csrf = client.get('/api/session').json['csrf']
-    payload = {'username':'guessed-user', 'password':'password-12345', 'invite_code':'incorrect-code'}
+    payload = {'username':'guessed-user', 'password':'password-12345', 'invite_code':'bad'}
     for _ in range(10):
         assert client.post('/api/register', json=payload,
                            headers={'X-CSRF-Token':csrf}).status_code == 403

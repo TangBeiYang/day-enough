@@ -260,8 +260,8 @@ def register_user():
     invite_code = data.get('invite_code')
     if not isinstance(password, str) or not 12 <= len(password) <= 256:
         abort(400, '密码须为 12–256 个字符。')
-    if not isinstance(invite_code, str) or len(invite_code) > 256:
-        abort(400, '邀请码无效。')
+    if not isinstance(invite_code, str) or not 3 <= len(invite_code) <= 8:
+        abort(400, '邀请码须为 3–8 个字符。')
     registry = get_registry_db()
     registry.execute('BEGIN IMMEDIATE')
     try:

@@ -34,9 +34,9 @@ python3 -m venv .venv
 .venv/bin/flask --app day_enough run --host 127.0.0.1 --port 8000
 ```
 
-打开 <http://127.0.0.1:8000>。`set-password` 为 `owner` 设置至少 12 个字符的密码；现有个人任务自动属于此账号，用 `owner` 和原密码登录。`set-invite-code` 设置至少 12 个字符的邀请码，注册新用户时填写。密码和邀请码不会写入源代码；未设置邀请码时不能注册。
+打开 <http://127.0.0.1:8000>。`set-password` 为 `owner` 设置至少 12 个字符的密码；现有个人任务自动属于此账号，用 `owner` 和原密码登录。`set-invite-code` 设置 3–8 个字符的邀请码，注册新用户时填写。密码和邀请码不会写入源代码；未设置邀请码时不能注册。
 
-忘记密码可执行 `set-password --username 用户名`；默认重置 `owner`。原有登录会话将失效，任务数据保持不变。再次运行 `set-invite-code` 可立即换码；`disable-registration` 可暂停新注册。
+忘记密码可执行 `set-password --username 用户名`；默认重置 `owner`。原有登录会话将失效，任务数据保持不变。再次运行 `set-invite-code` 可立即换码；若之前使用超过 8 字符的邀请码，升级后需重新设置。`disable-registration` 可暂停新注册。执行 `.venv/bin/flask --app day_enough count-users` 可查看注册用户数，以及包含 `owner` 的账号总数。
 
 Flask 开发服务器只用于本机试用。
 
