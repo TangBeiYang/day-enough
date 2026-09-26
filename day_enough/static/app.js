@@ -111,7 +111,8 @@ function planItem(item, index) {
 }
 function todayPage() {
   const plan = state.plan, tasks = state.tasks.filter(t => t.status === 'active');
-  const budget = plan ? plan.budget : state.settings.default_minutes;
+  const day=state.day, weekday=(new Date(day+'T12:00:00').getDay()+6)%7;
+  const budget = plan ? plan.budget : (state.settings.date_overrides[day]??state.settings.weekly_minutes[weekday]??state.settings.default_minutes);
   const pending = state.items.filter(i => i.status === 'pending' && i.task_status === 'active');
   const done = state.items.filter(i => i.status === 'done' || i.task_status !== 'active').length;
   let body = '';
@@ -189,7 +190,7 @@ function stageTargetCard(stage, target) {
 }
 function stageDetail(stage) {
   const pending=stage.targets.filter(t=>!t.completed), completed=stage.targets.filter(t=>t.completed);
-  const notice=stage.overdue_count?`<section class="warnings stage-overdue"><h3>计划日期已结束，还有 ${stage.overdue_count} 项目标待继续</h3><p>目标继续保留，后续投入仍会累计。本计划暂不改变今日自动推荐；可以用「自己安排」挑选今天要做的任务。</p></section>`:'';
+  const notice=stage.overdue_count?`<section class="warnings stage-overdue"><h3>计划日期已结束，还有 ${stage.overdue_count} 项目标待继续</h3><p>目标继续保留，后续投入仍会累计。重新安排今天时会参考仍待推进的目标；也可以用「自己安排」自行挑选。</p></section>`:'';
   return `<div class="stage-back"><a class="button primary small" href="#stages">← 返回阶段计划</a></div>${intro('A TIME FOR WHAT MATTERS',esc(stage.title),`${esc(stage.start_date)} — ${esc(stage.end_date)} · ${stageLabel(stage)}`)}${stage.description?`<p class="stage-description">${esc(stage.description)}</p>`:''}<div class="stage-toolbar"><button class="button small" data-action="edit-stage" data-id="${stage.id}">编辑计划</button><button class="button small ghost" data-action="stage-status" data-id="${stage.id}">${stage.status==='closed'?'恢复追踪':'结束追踪'}</button><button class="link-button" data-action="delete-stage" data-id="${stage.id}">删除计划</button></div>${stage.status==='closed'?'<p class="muted">已停止提醒；原任务继续保留，其投入仍会更新这里的进度。</p>':''}${notice}<div class="card stage-summary"><div><b>${stage.targets.length}</b><span>项本期目标</span></div><div><b>${stage.completed_count}</b><span>项已完成</span></div><div><b>${pending.length}</b><span>项待推进</span></div></div>${stage.status==='active'?`<div class="stage-add"><button class="button primary" data-action="add-stage-target" data-id="${stage.id}">＋ 添加已有任务</button><button class="button" data-action="new-stage-task" data-id="${stage.id}">＋ 新建任务</button></div>`:''}<div class="section-heading"><h2>待推进 · ${pending.length}</h2></div>${pending.length?`<div class="task-stack">${pending.map(t=>stageTargetCard(stage,t)).join('')}</div>`:empty('✓','这里暂时没有待推进目标',stage.targets.length?'本期目标已完成，可以按需要继续添加。':'先添加一件想在这段时间推进的事。')}<details class="stage-completed"><summary>已完成目标 · ${completed.length}</summary><div class="task-stack">${completed.map(t=>stageTargetCard(stage,t)).join('')||'<p class="muted">还没有已完成目标。</p>'}</div></details>`;
 }
 function stagesPage() {
@@ -205,8 +206,14 @@ function stageCards() {
   visible.sort((a,b)=>Number(!!b.overdue_count)-Number(!!a.overdue_count)||b.start_date.localeCompare(a.start_date));
   return visible.length?`<div class="stage-grid">${visible.map(stageCard).join('')}</div>`:empty('▦',query?'没有找到匹配的计划':stageFilter==='active'?'从一个周末计划开始':'这里还没有阶段计划',query?'试试计划名称、说明或任务名称。':stageFilter==='active'?'选择日期，再把想推进的任务放进来。':'可以切换筛选查看其他计划。');
 }
+function dateBudgetRow(day = '', minutes = '') {
+  return `<div class="date-budget-row"><input type="date" class="date-budget-day" aria-label="指定日期" value="${esc(day)}" required><input type="number" class="date-budget-minutes" aria-label="当天可用分钟" min="0" max="960" step="1" value="${esc(minutes)}" required><button class="link-button" type="button" data-action="remove-date-budget" aria-label="删除指定日期">删除</button></div>`;
+}
 function settingsPage() {
-  return intro('YOUR OWN RHYTHM', '按你的方式来。', '简单的设置，留给真正需要的事。') + `<div class="settings-grid"><section class="card settings-card"><h2>默认每日时间</h2><p>生成新一天的安排时使用，也用于估算截止风险。当天可以单独修改。</p><form id="settings-form"><label for="default-minutes">每天默认可支配分钟</label><input id="default-minutes" name="default_minutes" type="number" min="0" max="960" step="1" required value="${state.settings.default_minutes}"><p class="form-error error-text" role="alert"></p><button class="button primary" type="submit">保存设置</button></form><p class="footnote">日期统一按中国标准时间（Asia/Shanghai）计算。</p></section><section class="card settings-card"><h2>带走你的数据</h2><p>导出所有任务、每日安排和投入记录。备份不包含密码或登录信息。</p><div class="backup-actions"><a href="/api/export" class="button" download>↓ 导出 JSON 备份</a><button class="button ghost" data-action="import">↑ 从备份恢复</button><input id="backup-file" type="file" accept="application/json,.json" hidden></div><p class="footnote">恢复会替换全部现有任务数据。建议先导出当前备份。</p></section><section class="card settings-card"><h2>个人密码</h2><p>修改后，其他电脑上的会话需要重新登录。</p><form id="password-form"><div class="password-fields"><div><label for="old-password">当前密码</label><input id="old-password" name="old_password" type="password" autocomplete="current-password" maxlength="256" required></div><div><label for="new-password">新密码（至少 12 个字符）</label><input id="new-password" name="new_password" type="password" autocomplete="new-password" minlength="12" maxlength="256" required></div></div><p class="form-error error-text" role="alert"></p><button class="button primary" type="submit">更新密码</button></form></section><section class="card settings-card"><p class="eyebrow">SMALL STEPS, STEADY DAYS</p><h2>为你自己留一份余地</h2><p>推荐依据截止日期、剩余用时、后果严重度和当天精力。它是一份可以调整的建议，不是对你的评判。</p><p>第一版不会自动学习你的状态。用几天后，按实际情况修正用时估计，安排会更贴近现实。</p><button class="button ghost" data-action="logout">退出当前登录</button></section></div>`;
+  const weekdays=['周一','周二','周三','周四','周五','周六','周日'];
+  const weekly=weekdays.map((name,index)=>`<label>${name}<input class="weekly-budget" type="number" min="0" max="960" step="1" data-day="${index}" value="${state.settings.weekly_minutes[index]??''}" placeholder="默认"></label>`).join('');
+  const dates=Object.entries(state.settings.date_overrides).sort(([a],[b])=>a.localeCompare(b)).map(([day,minutes])=>dateBudgetRow(day,minutes)).join('');
+  return intro('YOUR OWN RHYTHM', '按你的方式来。', '简单的设置，留给真正需要的事。') + `<div class="settings-grid"><section class="card settings-card"><h2>默认每日时间</h2><p>生成新一天的安排时使用，也用于估算未来容量。每周和指定日期可以单独设置。</p><form id="settings-form"><label for="default-minutes">每天默认可支配分钟</label><input id="default-minutes" name="default_minutes" type="number" min="0" max="960" step="1" required value="${state.settings.default_minutes}"><p class="capacity-hint">每周可用时间（留空采用默认值）</p><div class="capacity-grid">${weekly}</div><p class="capacity-hint">指定日期（覆盖该星期的设置）</p><div id="date-budget-list">${dates}</div><button class="button small ghost" type="button" data-action="add-date-budget">＋ 添加日期</button><p class="form-error error-text" role="alert"></p><button class="button primary" type="submit">保存时间设置</button></form><p class="footnote">日期统一按中国标准时间（Asia/Shanghai）计算。</p></section><section class="card settings-card"><h2>带走你的数据</h2><p>导出所有任务、每日安排和投入记录。备份不包含密码或登录信息。</p><div class="backup-actions"><a href="/api/export" class="button" download>↓ 导出 JSON 备份</a><button class="button ghost" data-action="import">↑ 从备份恢复</button><input id="backup-file" type="file" accept="application/json,.json" hidden></div><p class="footnote">恢复会替换全部现有任务数据。建议先导出当前备份。</p></section><section class="card settings-card"><h2>个人密码</h2><p>修改后，其他电脑上的会话需要重新登录。</p><form id="password-form"><div class="password-fields"><div><label for="old-password">当前密码</label><input id="old-password" name="old_password" type="password" autocomplete="current-password" maxlength="256" required></div><div><label for="new-password">新密码（至少 12 个字符）</label><input id="new-password" name="new_password" type="password" autocomplete="new-password" minlength="12" maxlength="256" required></div></div><p class="form-error error-text" role="alert"></p><button class="button primary" type="submit">更新密码</button></form></section><section class="card settings-card"><p class="eyebrow">SMALL STEPS, STEADY DAYS</p><h2>为你自己留一份余地</h2><p>推荐依据截止日期、剩余用时、后果严重度和当天精力。它是一份可以调整的建议，不是对你的评判。</p><p>第一版不会自动学习你的状态。用几天后，按实际情况修正用时估计，安排会更贴近现实。</p><button class="button ghost" data-action="logout">退出当前登录</button></section></div>`;
 }
 function render() {
   $('#today-date').textContent = dateLabel(state.day);
@@ -463,6 +470,8 @@ document.addEventListener('click',event=>{
   if(action==='edit-task') return taskDialog(task);
   if(action==='work') return workDialog(task);
   if(action==='filter') {filter=value;render();return;}
+  if(action==='add-date-budget') {$('#date-budget-list').insertAdjacentHTML('beforeend',dateBudgetRow());return;}
+  if(action==='remove-date-budget') {button.closest('.date-budget-row').remove();return;}
   if(action==='import') {$('#backup-file').click();return;}
   if(action==='logout') {run(logout);return;}
   if(action==='finish-share') {
@@ -557,7 +566,17 @@ document.addEventListener('submit',event=>{
     await mutate('/plan/manual',{budget:Number(values.budget),energy:values.energy,items},base);
     $('#manual-dialog').close();toast('自己安排的今日计划已保存');
   },form);
-  if(form.id==='settings-form') return run(async()=>{await mutate('/settings',{default_minutes:Number(values.default_minutes)},base);toast('默认时间已保存');},form);
+  if(form.id==='settings-form') return run(async()=>{
+    const weekly_minutes=$$('.weekly-budget',form).map(input=>input.value===''?null:Number(input.value));
+    const date_overrides={};
+    for(const row of $$('.date-budget-row',form)) {
+      const day=$('.date-budget-day',row).value;
+      if(Object.hasOwn(date_overrides,day)) throw new Error(`日期 ${day} 重复设置了时间。`);
+      date_overrides[day]=Number($('.date-budget-minutes',row).value);
+    }
+    await mutate('/settings',{default_minutes:Number(values.default_minutes),weekly_minutes,date_overrides},base);
+    toast('时间设置已保存');
+  },form);
   if(form.id==='password-form') return run(async()=>{await mutate('/password',values,base);toast('密码已更新，其他设备需要重新登录');},form);
   if(form.id==='confirm-form') return run(async()=>{await confirmAction(base);$('#confirm-dialog').close();},form);
 });

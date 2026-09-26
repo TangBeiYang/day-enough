@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 from flask import Blueprint, abort, current_app, jsonify, request, session
 from werkzeug.security import check_password_hash, generate_password_hash
 from .db import get_db, value, set_value
+from .capacity import read_capacity, validate_capacity, minutes_on
 from .planner import recommend, risks
 from .recurrence import next_occurrence, sync_recurring, cycle_start
 
@@ -72,25 +73,7 @@ def require_auth():
         abort(401, '请先登录。')
 
 
-def snapshot(db):
-    day = today()
-    tasks = [dict(row) for row in db.execute('SELECT * FROM tasks ORDER BY created_at DESC,id')]
-    plan_row = db.execute('SELECT * FROM plans WHERE day=?', (day,)).fetchone()
-    plan = dict(plan_row) if plan_row else None
-    items = [dict(row) for row in db.execute('''SELECT i.*, t.title, t.due_date, t.energy,
-        t.planned_date, t.recurrence_id, t.occurrence_date, t.missed,
-        t.remaining_minutes, t.next_step, t.status AS task_status
-        FROM items i JOIN tasks t ON t.id=i.task_id WHERE i.day=? ORDER BY i.position,i.id''', (day,))]
-    totals = db.execute("SELECT COALESCE(SUM(minutes),0), COALESCE(SUM(CASE WHEN energy='high' THEN minutes ELSE 0 END),0) FROM work_logs WHERE day=?", (day,)).fetchone()
-    default = int(value(db, 'default_minutes'))
-    allocations = {i['task_id']: min(i['remaining_minutes'], max(0, i['planned_minutes'] - i['done_minutes']))
-                   for i in items if i['status'] == 'pending' and i['task_status'] == 'active'}
-    warnings = risks(tasks, date.fromisoformat(day), default,
-                     plan['budget'] if plan else default, totals[0],
-                     plan['energy'] if plan else 'medium', totals[1], allocations) if tasks else []
-    if plan and totals[0] + sum(allocations.values()) > plan['budget']:
-        over = totals[0] + sum(allocations.values()) - plan['budget']
-        warnings.insert(0, f'已投入与待做安排合计超过今日预算 {over} 分钟；你可以按自己的节奏决定。')
+def planning_context(db, day):
     recurrences = [dict(row) for row in db.execute('SELECT * FROM recurrences ORDER BY created_at DESC,id')]
     for rule in recurrences:
         rule['weekdays'] = json.loads(rule['weekdays'])
@@ -108,13 +91,48 @@ def snapshot(db):
         stage['completed_count'] = sum(target['completed'] for target in stage['targets'])
         stage['overdue_count'] = (len(stage['targets']) - stage['completed_count']
                                   if stage['status'] == 'active' and day > stage['end_date'] else 0)
+    return recurrences, stages
+
+
+def planning_tasks(db, tasks):
+    latest = dict(db.execute('SELECT task_id,MAX(day) FROM work_logs GROUP BY task_id'))
+    return [dict(task, _last_work_day=latest.get(task['id']) or task['created_at'][:10])
+            for task in tasks]
+
+
+def snapshot(db):
+    day = today()
+    tasks = [dict(row) for row in db.execute('SELECT * FROM tasks ORDER BY created_at DESC,id')]
+    plan_row = db.execute('SELECT * FROM plans WHERE day=?', (day,)).fetchone()
+    plan = dict(plan_row) if plan_row else None
+    items = [dict(row) for row in db.execute('''SELECT i.*, t.title, t.due_date, t.energy,
+        t.planned_date, t.recurrence_id, t.occurrence_date, t.missed,
+        t.remaining_minutes, t.next_step, t.status AS task_status
+        FROM items i JOIN tasks t ON t.id=i.task_id WHERE i.day=? ORDER BY i.position,i.id''', (day,))]
+    totals = db.execute("SELECT COALESCE(SUM(minutes),0), COALESCE(SUM(CASE WHEN energy='high' THEN minutes ELSE 0 END),0) FROM work_logs WHERE day=?", (day,)).fetchone()
+    default = int(value(db, 'default_minutes'))
+    weekly, overrides = read_capacity(db)
+    recurrences, stages = planning_context(db, day)
+    allocations = {i['task_id']: min(i['remaining_minutes'], max(0, i['planned_minutes'] - i['done_minutes']))
+                   for i in items if i['status'] == 'pending' and i['task_status'] == 'active'}
+    today_budget = plan['budget'] if plan else minutes_on(date.fromisoformat(day), default, weekly, overrides)
+    warnings = risks(planning_tasks(db, tasks), date.fromisoformat(day), default,
+                     today_budget, totals[0],
+                     plan['energy'] if plan else 'medium', totals[1], allocations,
+                     weekly_minutes=weekly, date_overrides=overrides,
+                     stages=stages, recurrences=recurrences,
+                     locked_today=bool(plan)) if tasks else []
+    if plan and totals[0] + sum(allocations.values()) > plan['budget']:
+        over = totals[0] + sum(allocations.values()) - plan['budget']
+        warnings.insert(0, f'已投入与待做安排合计超过今日预算 {over} 分钟；你可以按自己的节奏决定。')
     handled = {i['task_id'] for i in items}
     unplanned = [t['id'] for t in tasks if t['status'] == 'active' and t['id'] not in handled]
     return {'day': day, 'revision': int(value(db, 'revision')), 'tasks': tasks,
             'recurrences': recurrences, 'stages': stages, 'unplanned_scheduled': unplanned,
             'plan': plan, 'items': items, 'worked_minutes': totals[0],
             'remaining_planned': sum(allocations.values()), 'warnings': warnings,
-            'settings': {'default_minutes': default, 'timezone': 'Asia/Shanghai'}}
+            'settings': {'default_minutes': default, 'weekly_minutes': weekly,
+                         'date_overrides': overrides, 'timezone': 'Asia/Shanghai'}}
 
 
 def mutation(fn):
@@ -537,7 +555,13 @@ def make_plan(db, data):
     db.execute("UPDATE items SET planned_minutes=done_minutes,status='done' WHERE day=? AND status='pending'", (day,))
     tasks = [dict(row) for row in db.execute('SELECT * FROM tasks')]
     totals = db.execute("SELECT COALESCE(SUM(minutes),0),COALESCE(SUM(CASE WHEN energy='high' THEN minutes ELSE 0 END),0) FROM work_logs WHERE day=?", (day,)).fetchone()
-    picks = recommend(tasks, date.fromisoformat(day), budget, energy, totals[0], totals[1], excluded)
+    weekly, overrides = read_capacity(db)
+    recurrences, stages = planning_context(db, day)
+    picks = recommend(planning_tasks(db, tasks), date.fromisoformat(day), budget, energy,
+                      totals[0], totals[1], excluded,
+                      default_minutes=int(value(db, 'default_minutes')),
+                      weekly_minutes=weekly, date_overrides=overrides,
+                      stages=stages, recurrences=recurrences)
     for position, pick in enumerate(picks):
         existing = db.execute('SELECT * FROM items WHERE day=? AND task_id=?', (day, pick['task_id'])).fetchone()
         if existing:
@@ -625,7 +649,15 @@ def order(db, data):
 @mutation
 def settings(db, data):
     minutes = integer(data.get('default_minutes'), '默认可用分钟', 0, 960)
+    weekly, overrides = read_capacity(db)
+    try:
+        weekly, overrides = validate_capacity(data.get('weekly_minutes', weekly),
+                                              data.get('date_overrides', overrides))
+    except ValueError as error:
+        abort(400, str(error))
     set_value(db, 'default_minutes', minutes)
+    set_value(db, 'weekly_minutes', json.dumps(weekly, ensure_ascii=False))
+    set_value(db, 'date_overrides', json.dumps(overrides, ensure_ascii=False, sort_keys=True))
 
 
 @bp.post('/password')

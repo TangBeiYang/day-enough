@@ -84,8 +84,13 @@ def main():
                 page.screenshot(path=str(screenshots/'tasks.png'),full_page=True)
                 page.get_by_role('link',name='设置',exact=True).click()
                 page.get_by_label('每天默认可支配分钟').fill('150')
-                page.get_by_role('button',name='保存设置',exact=True).click()
+                page.locator('.weekly-budget[data-day="4"]').fill('180')
+                page.get_by_role('button',name='＋ 添加日期').click()
+                page.get_by_label('指定日期',exact=True).fill('2026-10-01')
+                page.get_by_label('当天可用分钟').fill('90')
+                page.get_by_role('button',name='保存时间设置',exact=True).click()
                 expect(page.get_by_label('每天默认可支配分钟')).to_have_value('150')
+                expect(page.locator('.weekly-budget[data-day="4"]')).to_have_value('180')
                 with page.expect_download() as download:
                     page.get_by_role('link',name='↓ 导出 JSON 备份').click()
                 backup=Path(directory)/'export.json';download.value.save_as(backup)
@@ -94,7 +99,12 @@ def main():
                 page.get_by_label('输入「恢复」以确认替换').fill('恢复')
                 page.get_by_role('button',name='替换并恢复').click()
                 expect(page.locator('#confirm-dialog')).not_to_be_visible()
+                expect(page.get_by_label('当天可用分钟')).to_have_value('90')
                 page.screenshot(path=str(screenshots/'settings.png'),full_page=True)
+                page.set_viewport_size({'width':390,'height':844})
+                assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth'), 'Settings overflow on mobile'
+                page.screenshot(path=str(screenshots/'settings-mobile.png'),full_page=True)
+                page.set_viewport_size({'width':1440,'height':1000})
                 page.get_by_role('link',name='今天',exact=True).click()
                 page.get_by_role('button',name='重新安排今天').click()
                 page.locator('#confirm-submit').click()
@@ -355,7 +365,7 @@ def main():
                 browser.close()
         finally:
             server.shutdown();thread.join(timeout=5)
-    print('Browser smoke passed: stage planning and carry reminder, manual plan, task overview, deletion, v6 restore, mobile; no JS/CSP errors.')
+    print('Browser smoke passed: future capacity settings, stage planning, manual plan, task overview, deletion, v7 restore, mobile; no JS/CSP errors.')
 
 
 if __name__=='__main__':

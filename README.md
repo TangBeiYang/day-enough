@@ -13,7 +13,7 @@ DayEnough is a desktop-first personal web app. It stores data on one server so t
 - Optional deadlines for open-ended personal tasks.
 - Optional planned dates for ordinary tasks; daily, weekly, and monthly recurring tasks with independent progress for each occurrence.
 - Track estimated remaining time and actual time spent.
-- Generate a daily plan from deadlines, consequences, remaining effort, available time, and current energy.
+- Generate a daily plan from deadlines, planned dates, Stage goals, future recurring work, available time, and current energy.
 - Arrange today's tasks yourself, set minutes and order, and save even when the total exceeds your budget after a clear warning.
 - Record partial progress, complete a daily share, skip an item, reorder the plan, or explicitly regenerate it.
 - Keep the daily plan stable: completing work never adds more tasks automatically.
@@ -75,7 +75,7 @@ The running server only needs `requirements.lock`; test dependencies and Node ar
 
 Filled deadlines use the end of that date in the `Asia/Shanghai` timezone. Undated tasks can still be recommended, but they do not produce deadline-risk warnings. Energy is a rough limit on high-effort work rather than a medical or physiological measure.
 
-Regenerating a plan accounts for time already recorded and preserves completed or skipped shares. Skipping applies only to the current day. Future capacity currently assumes the same default available time every day, including weekends, and medium energy. Deadline warnings are estimates, not guarantees.
+Regenerating a plan accounts for time already recorded and preserves completed or skipped shares. Skipping applies only to the current day. In **Settings**, set a default time budget, optional budgets for each weekday, and overrides for specific dates. The planner previews up to 60 future days in memory and saves only today’s suggested shares. Future energy is estimated as medium. Deadline and Stage shortfalls are estimates, not guarantees.
 
 Manual planning keeps recorded work and handled shares. It warns when recorded work plus remaining scheduled minutes exceeds today's budget, but you can still save. The automatic planner continues to respect its time and energy limits.
 
@@ -95,13 +95,13 @@ Task overview shows active ordinary tasks, current recurring occurrences, any ol
 
 Open **Stage plans** in the sidebar to set a date range for a weekend, holiday, or other short stretch. Add existing tasks or create an ordinary task inside the plan. Each goal can mean completing the task or spending a chosen number of minutes from the plan's start date onward. The detail page shares the original task's progress and editing controls. Removing a goal or deleting a Stage plan keeps its tasks and work logs.
 
-After the end date, unfinished goals stay in the plan and appear as a reminder on Today. Later work continues to count toward the goal. You can edit the plan, stop reminders by ending tracking, or resume tracking. A recurring occurrence set to **Skip missed work** cannot be added as a carry-over goal; use a task that keeps missed work pending instead. Stage goals currently do not change automatic daily recommendations. On **Today**, choose **Arrange it myself** to filter for a Stage plan's tasks; filtering keeps any shares already selected. Future algorithm requirements are recorded in [Algorithm requirements](docs/ALGORITHM_REQUIREMENTS.md).
+After the end date, unfinished goals stay in the plan and appear as a reminder on Today. Later work continues to count toward the goal. You can edit the plan, stop reminders by ending tracking, or resume tracking. A recurring occurrence set to **Skip missed work** cannot be added as a carry-over goal; use a task that keeps missed work pending instead. Stage goals affect automatic suggestions when you generate or regenerate today’s plan. Overdue goals stay eligible without gaining unlimited priority. On **Today**, choose **Arrange it myself** to filter for a Stage plan's tasks; filtering keeps any shares already selected. The current rules and forecast limits are documented in [Algorithm requirements](docs/ALGORITHM_REQUIREMENTS.md).
 
 ## Data and backups
 
 By default, the `instance/` directory contains the SQLite database and session-signing key. It is excluded from Git. Set `DAY_ENOUGH_DATA` to use another absolute data directory.
 
-- Use **Settings → Export JSON backup** for routine portable backups. The file contains tasks, recurrence rules, plans, work logs, and default time, but no password.
+- Use **Settings → Export JSON backup** for routine portable backups. The file contains tasks, recurrence rules, plans, work logs, and time budgets, but no password.
 - Use **Settings → Restore from backup** to restore a JSON backup. This replaces all current task data, so export the current state first.
 - Make a consistent server-side SQLite backup with:
 
@@ -111,7 +111,7 @@ By default, the `instance/` directory contains the SQLite database and session-s
 
 The backup command uses SQLite's backup API, refuses to overwrite an existing file, and verifies database integrity. Do not copy a live SQLite main file directly because unmerged data may still be in its WAL. A full SQLite backup includes the password hash and should be protected like the task data.
 
-On startup, existing databases are automatically upgraded with the Stage plan tables. Back up before upgrading and restart the app after updating the code. JSON exports use version 6; version 1–5 backups can still be restored. Existing dates, progress, deadlines, and set-aside history are preserved. Dates act as completion targets; each occurrence stores its cycle end so later rule edits cannot change its expiry. Older app versions cannot read version 6 backups.
+On startup, existing databases are automatically upgraded with Stage plan tables and default time-budget settings. Back up before upgrading and restart the app after updating the code. JSON exports use version 7; version 1–6 backups can still be restored, with the previous single daily default applied to all weekdays. Existing dates, progress, deadlines, and set-aside history are preserved. Older app versions cannot read version 7 backups.
 
 ## Verification
 

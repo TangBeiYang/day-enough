@@ -5,23 +5,29 @@ from copy import deepcopy
 from datetime import date, datetime
 from uuid import UUID
 from .db import init_db
+from .capacity import read_capacity, validate_capacity
 from .recurrence import next_occurrence, cycle_end, cycle_start
 
 TABLES = ('recurrences', 'suppressed_occurrences', 'tasks', 'stages', 'stage_targets', 'plans', 'items', 'work_logs')
 
 
 def export_data(db):
-    return {'format': 'day-enough', 'version': 6,
+    weekly, overrides = read_capacity(db)
+    return {'format': 'day-enough', 'version': 7,
             'default_minutes': int(db.execute("SELECT value FROM meta WHERE key='default_minutes'").fetchone()[0]),
+            'weekly_minutes': weekly, 'date_overrides': overrides,
             'tables': {name: [dict(row) for row in db.execute(f'SELECT * FROM {name}')] for name in TABLES}}
 
 
 def restore_data(db, data):
-    if not isinstance(data, dict) or data.get('format') != 'day-enough' or type(data.get('version')) is not int or data['version'] not in (1, 2, 3, 4, 5, 6):
+    if not isinstance(data, dict) or data.get('format') != 'day-enough' or type(data.get('version')) is not int or data['version'] not in (1, 2, 3, 4, 5, 6, 7):
         raise ValueError('不支持的备份版本')
     default = data.get('default_minutes')
     if type(default) is not int or not 0 <= default <= 960:
         raise ValueError('默认时间无效')
+    weekly, overrides = validate_capacity(
+        data.get('weekly_minutes') if data['version'] >= 7 else [None] * 7,
+        data.get('date_overrides') if data['version'] >= 7 else {})
     tables = deepcopy(data.get('tables'))
     if data['version'] == 1:
         if not isinstance(tables, dict) or set(tables) != {'tasks', 'plans', 'items', 'work_logs'} or not isinstance(tables['tasks'], list):
@@ -125,5 +131,7 @@ def restore_data(db, data):
             for row in scratch.execute(f'SELECT * FROM {name}'):
                 db.execute(f'INSERT INTO {name} ({",".join(columns)}) VALUES ({",".join("?" for _ in columns)})', tuple(row))
         db.execute("UPDATE meta SET value=? WHERE key='default_minutes'", (str(default),))
+        db.execute("UPDATE meta SET value=? WHERE key='weekly_minutes'", (json.dumps(weekly),))
+        db.execute("UPDATE meta SET value=? WHERE key='date_overrides'", (json.dumps(overrides, sort_keys=True),))
     finally:
         scratch.close()

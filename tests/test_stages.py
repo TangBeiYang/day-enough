@@ -77,7 +77,7 @@ def test_stage_restore_and_old_backup_compatibility(browser):
     stage = create_stage(browser)
     assert save_target(browser, stage, task).status_code == 200
     exported = browser.client.get('/api/export').json
-    assert exported['version'] == 6
+    assert exported['version'] == 7
     assert len(exported['tables']['stage_targets']) == 1
     bad = deepcopy(exported)
     bad['tables']['stages'][0]['end_date'] = '2026-09-13'

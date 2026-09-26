@@ -1,6 +1,7 @@
 PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-INSERT OR IGNORE INTO meta VALUES ('revision','0'),('default_minutes','120'),('auth_version','0');
+INSERT OR IGNORE INTO meta VALUES ('revision','0'),('default_minutes','120'),('auth_version','0'),
+ ('weekly_minutes','[null,null,null,null,null,null,null]'),('date_overrides','{}');
 CREATE TABLE IF NOT EXISTS recurrences (
  id TEXT PRIMARY KEY,
  title TEXT NOT NULL CHECK(length(title) BETWEEN 1 AND 120),

@@ -281,7 +281,7 @@ def test_backup_v2_roundtrip_and_invalid_rules(browser):
     task = browser.state()['tasks'][0]
     browser.post('/tasks/' + task['id'] + '/work', {'minutes': 5})
     backup = browser.client.get('/api/export').json
-    assert backup['version'] == 6
+    assert backup['version'] == 7
     response = browser.post('/restore', {'backup': backup, 'confirmation': '恢复'})
     assert response.status_code == 200, response.json
     assert browser.client.get('/api/export').json == backup
@@ -331,7 +331,7 @@ def test_existing_database_migration_preserves_references_and_is_repeatable(tmp_
         assert db.execute('SELECT minutes FROM work_logs').fetchone()[0] == 10
         assert db.execute("SELECT value FROM meta WHERE key='revision'").fetchone()[0] == '17'
         assert list(db.execute('PRAGMA foreign_key_check')) == []
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 6
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 7
     finally:
         db.close()
 
