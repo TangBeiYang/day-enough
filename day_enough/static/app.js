@@ -386,6 +386,30 @@ function manualDialog() {
   updateManualSummary();
   openDialog('#manual-dialog');
 }
+async function refreshAnnouncements() {
+  const result = await api('/announcements');
+  const entries = result.announcements;
+  const panel = $('#announcement-panel');
+  panel.hidden = !entries.length;
+  if (!entries.length) return;
+  const latest = entries[0];
+  $('#announcement-body').textContent = latest.body;
+  $('#announcement-time').dateTime = latest.created_at;
+  $('#announcement-time').textContent = latest.created_at.slice(0, 16).replace('T', ' ');
+  const older = entries.slice(1);
+  $('#announcement-older').hidden = !older.length;
+  $('#announcement-older-label').textContent = `查看较早公告 · ${older.length}`;
+  $('#announcement-list').replaceChildren(...older.map(entry => {
+    const item = document.createElement('li');
+    const time = document.createElement('time');
+    time.dateTime = entry.created_at;
+    time.textContent = entry.created_at.slice(0, 16).replace('T', ' ');
+    const body = document.createElement('p');
+    body.textContent = entry.body;
+    item.append(time, body);
+    return item;
+  }));
+}
 async function boot() {
   const session = await api('/session'); csrfToken = session.csrf;
   $('#boot').hidden = true; $('#login-screen').hidden = session.authenticated; $('#app').hidden = !session.authenticated;
@@ -393,8 +417,10 @@ async function boot() {
   if (session.authenticated) {
     $('#current-username').textContent = session.username;
     state = await api('/state'); render();
+    refreshAnnouncements().catch(() => {});
   } else {
     state = undefined;
+    $('#announcement-panel').hidden = true;
     $('#current-username').textContent = '个人空间';
     $$('dialog[open]').forEach(d => d.close());
   }
@@ -429,7 +455,10 @@ $('#register-form').addEventListener('submit', async event => {
   } catch(error) {$('#register-error').textContent=error.message;}
   finally {busy=false;button.disabled=false;}
 });
-$('#refresh-button').addEventListener('click',()=>run(async()=>{state=await api('/state');render();toast('已读取最新数据');}));
+$('#refresh-button').addEventListener('click',()=>run(async()=>{state=await api('/state');render();await refreshAnnouncements();toast('已读取最新数据');}));
+setInterval(() => {
+  if (state && !document.hidden) refreshAnnouncements().catch(() => {});
+}, 60000);
 async function logout() {
   await api('/logout',{});
   $('#login-form').reset(); $('#register-form').reset();

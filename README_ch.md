@@ -11,6 +11,7 @@ DayEnough 是一个电脑优先的个人 Web 应用。数据统一保存在服�
 ## 当前功能
 
 - 用户名、密码登录；凭服务器邀请码注册新用户，每个账号的数据独立保存。
+- 服务器可发布网站公告，登录用户可在各页面顶部查看。
 - 任务录入、编辑、完成、暂时搁置、继续做和删除。
 - 截止日期可选，支持没有明确日期的个人任务。
 - 普通任务支持可选计划日期；周期任务支持每天、每周指定星期和每月，每次独立记录进度。
@@ -38,7 +39,11 @@ python3 -m venv .venv
 
 打开 <http://127.0.0.1:8000>。`set-password` 为 `owner` 设置至少 12 个字符的密码；现有个人任务自动属于此账号，用 `owner` 和原密码登录。`set-invite-code` 设置 3–8 个字符的邀请码，注册新用户时填写。密码和邀请码不会写入源代码；未设置邀请码时不能注册。
 
-忘记密码可执行 `set-password --username 用户名`；默认重置 `owner`。原有登录会话将失效，任务数据保持不变。再次运行 `set-invite-code` 可立即换码；若之前使用超过 8 字符的邀请码，升级后需重新设置。`disable-registration` 可暂停新注册。执行 `.venv/bin/flask --app day_enough count-users` 可查看注册用户数，以及包含 `owner` 的账号总数。
+忘记密码可执行 `set-password --username 用户名`；默认重置 `owner`。原有登录会话将失效，任务数据保持不变。再次运行 `set-invite-code` 可立即换码；若之前使用超过 8 字符的邀请码，升级后需重新设置。`disable-registration` 可暂停新注册。
+
+执行 `.venv/bin/flask --app day_enough count-users` 可查看注册用户数、包含 `owner` 的账号总数，以及实际读取的数据库路径。**命令必须读取网站使用的主库**：若网站服务设置了 `DAY_ENOUGH_DATA`，运行命令时也要设置相同的值；也可用 `count-users --database /实际路径/day-enough.sqlite` 显式指定。看到总数 1 时，先核对输出路径。
+
+发布公告用 `.venv/bin/flask --app day_enough post-announcement '公告内容'`；命令会返回公告编号，误发时可用 `delete-announcement 编号` 删除。登录用户在每页顶部看到最新公告，较早的四条可展开；页面每分钟检查新公告，也可点「刷新」立即读取。服务器上执行时同样要带上网站服务使用的 `DAY_ENOUGH_DATA`。
 
 Flask 开发服务器只用于本机试用。
 

@@ -7,8 +7,8 @@
   <meta name="description" content="DayEnough，帮你决定今天做什么、做到多少就够了。">
   <title>DayEnough · 今天，适量就好</title>
   <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
-  <link rel="stylesheet" href="{{ url_for('static', filename='app.css', v='planner-15') }}">
-  <script src="{{ url_for('static', filename='app.js', v='planner-15') }}" defer></script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css', v='planner-16') }}">
+  <script src="{{ url_for('static', filename='app.js', v='planner-16') }}" defer></script>
 </head>
 <body>
   <div id="boot" class="boot" role="status">正在打开 DayEnough…</div>
@@ -19,6 +19,7 @@
   <div id="app" class="app-shell" hidden>
     <aside class="sidebar"><a href="#today" class="brand"><span class="brand-mark">d.</span> DayEnough</a><p class="sidebar-caption">把今天安排得刚刚好</p><nav aria-label="主导航"><a href="#today" data-page="today"><span aria-hidden="true">◷</span> 今天</a><a href="#tasks" data-page="tasks"><span aria-hidden="true">▤</span> 任务总览</a><a href="#stages" data-page="stages"><span aria-hidden="true">▦</span> 阶段计划 <span id="stage-count" class="count" hidden>0</span></a><a href="#settings" data-page="settings"><span aria-hidden="true">⚙</span> 设置</a></nav><div class="sidebar-note"><div class="note-symbol" aria-hidden="true">✳</div><p>一步一步，<br>也在向前。</p><span>你的精力，同样值得被照顾。</span></div><div class="sidebar-bottom"><span class="status-dot" aria-hidden="true"></span> <span id="current-username">个人空间</span><button id="logout-button" class="link-button">退出</button></div></aside>
     <div class="workspace"><header class="topbar"><span id="today-date"></span><div><span id="sync-status" class="sync-status" role="status">已读取最新数据</span><button id="refresh-button" class="button small ghost">↻ 刷新</button><button id="top-create-button" data-action="new-task" class="button small primary">＋ 新建任务</button></div></header>
+      <section id="announcement-panel" class="announcement-panel" aria-label="网站公告" hidden><div class="announcement-heading"><strong>网站公告</strong><time id="announcement-time"></time></div><p id="announcement-body" class="announcement-body"></p><details id="announcement-older" hidden><summary id="announcement-older-label">查看较早公告</summary><ol id="announcement-list" class="announcement-list"></ol></details></section>
       <div id="global-error" class="global-error" role="alert" hidden></div>
       <main id="main-content"></main>
       <footer class="page-footer"><span>DayEnough</span> 不必把每一分钟都填满。</footer>

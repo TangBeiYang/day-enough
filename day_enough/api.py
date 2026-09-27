@@ -192,6 +192,14 @@ def get_session():
                    username=username, csrf=session['csrf'])
 
 
+@bp.get('/announcements')
+def get_announcements():
+    require_auth()
+    rows = get_registry_db().execute(
+        'SELECT id,body,created_at FROM announcements ORDER BY id DESC LIMIT 5').fetchall()
+    return jsonify(announcements=[dict(row) for row in rows])
+
+
 def username_field(data):
     raw = data.get('username')
     if not isinstance(raw, str):

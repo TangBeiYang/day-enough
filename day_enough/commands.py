@@ -3,7 +3,9 @@ import sqlite3
 import tempfile
 import zipfile
 from contextlib import closing
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 import click
 from werkzeug.security import generate_password_hash
 from .db import connect, get_db, get_registry_db, set_value, user_db_path, value
@@ -70,12 +72,56 @@ def register(app):
         click.echo('已暂停新用户注册。')
 
     @app.cli.command('count-users')
-    def count_users():
+    @click.option('--database', type=click.Path(exists=True, dir_okay=False, path_type=Path),
+                  help='指定网站使用的主数据库文件。')
+    def count_users(database):
         """Show how many accounts have been registered."""
-        db = get_registry_db()
-        registered = db.execute("SELECT COUNT(*) FROM users WHERE id!='owner'").fetchone()[0]
-        total = db.execute('SELECT COUNT(*) FROM users').fetchone()[0]
+        path = (database or Path(app.config['DATABASE'])).resolve()
+        if database:
+            with closing(sqlite3.connect(path.as_uri() + '?mode=ro', uri=True)) as db:
+                registered = db.execute("SELECT COUNT(*) FROM users WHERE id!='owner'").fetchone()[0]
+                total = db.execute('SELECT COUNT(*) FROM users').fetchone()[0]
+        else:
+            db = get_registry_db()
+            registered = db.execute("SELECT COUNT(*) FROM users WHERE id!='owner'").fetchone()[0]
+            total = db.execute('SELECT COUNT(*) FROM users').fetchone()[0]
         click.echo(f'已注册用户：{registered}；账号总数（含 owner）：{total}。')
+        click.echo(f'读取数据库：{path}')
+
+    @app.cli.command('post-announcement')
+    @click.argument('message')
+    def post_announcement(message):
+        """Publish a notice to all signed-in users."""
+        message = message.strip()
+        if not 1 <= len(message) <= 1000:
+            raise click.ClickException('公告须为 1–1000 个字符。')
+        db = get_registry_db()
+        db.execute('BEGIN IMMEDIATE')
+        try:
+            stamp = datetime.now(ZoneInfo('Asia/Shanghai')).isoformat(timespec='seconds')
+            result = db.execute('INSERT INTO announcements(body,created_at) VALUES (?,?)',
+                                (message, stamp))
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+        click.echo(f'公告已发布，编号 {result.lastrowid}。')
+
+    @app.cli.command('delete-announcement')
+    @click.argument('announcement_id', type=int)
+    def delete_announcement(announcement_id):
+        """Remove a published notice by id."""
+        db = get_registry_db()
+        db.execute('BEGIN IMMEDIATE')
+        try:
+            result = db.execute('DELETE FROM announcements WHERE id=?', (announcement_id,))
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+        if not result.rowcount:
+            raise click.ClickException('公告编号不存在。')
+        click.echo(f'公告 {announcement_id} 已删除。')
 
     @app.cli.command('backup')
     @click.argument('destination', type=click.Path())

@@ -24,6 +24,7 @@ def main():
         with app.app_context():
             set_value(get_db(),'password_hash',generate_password_hash('browser-test-password'))
             set_value(get_db(),'invite_code_hash',generate_password_hash('abc123'))
+        assert app.test_cli_runner().invoke(args=['post-announcement','临时测试公告']).exit_code == 0
         server=make_server('127.0.0.1',0,app,threaded=True)
         thread=threading.Thread(target=server.serve_forever,daemon=True)
         thread.start()
@@ -41,6 +42,13 @@ def main():
                 page.locator('#login-password').fill('browser-test-password')
                 page.get_by_role('button',name='进入我的一天').click()
                 expect(page.locator('#app')).to_be_visible()
+                expect(page.locator('#announcement-body')).to_have_text('临时测试公告')
+                assert app.test_cli_runner().invoke(args=['post-announcement','第二条公告']).exit_code == 0
+                page.locator('#refresh-button').click()
+                expect(page.locator('#announcement-body')).to_have_text('第二条公告')
+                page.locator('#announcement-older summary').click()
+                expect(page.locator('#announcement-list')).to_contain_text('临时测试公告')
+                page.screenshot(path=str(screenshots/'announcements.png'),full_page=True)
                 expect(page.locator('#task-count')).to_have_count(0)
                 expect(page.get_by_role('heading',name='从一件小事开始')).to_be_visible()
                 for title,minutes,energy,step,due in [
@@ -375,6 +383,7 @@ def main():
                 newcomer.locator('#register-invite').fill('abc123')
                 newcomer.get_by_role('button',name='注册并进入').click()
                 expect(newcomer.locator('#app')).to_be_visible()
+                expect(newcomer.locator('#announcement-body')).to_have_text('第二条公告')
                 expect(newcomer.locator('#current-username')).to_have_text('新人账号')
                 expect(newcomer.get_by_role('heading',name='从一件小事开始')).to_be_visible()
                 newcomer.get_by_role('button',name='＋ 新建任务',exact=True).click()
@@ -391,7 +400,7 @@ def main():
                 browser.close()
         finally:
             server.shutdown();thread.join(timeout=5)
-    print('Browser smoke passed: registration, account isolation, future capacity settings, stage planning, manual plan, task overview, deletion, v7 restore, mobile; no JS/CSP errors.')
+    print('Browser smoke passed: shared announcements, registration, account isolation, future capacity settings, stage planning, manual plan, task overview, deletion, v7 restore, mobile; no JS/CSP errors.')
 
 
 if __name__=='__main__':

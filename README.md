@@ -9,6 +9,7 @@ DayEnough is a desktop-first personal web app. It stores data on one server so t
 ## Features
 
 - Username and password login, invite-code registration, and separate data for each account.
+- Server-published announcements visible to all signed-in users.
 - Create, edit, complete, temporarily set aside, resume, and delete tasks.
 - Optional deadlines for open-ended personal tasks.
 - Optional planned dates for ordinary tasks; daily, weekly, and monthly recurring tasks with independent progress for each occurrence.
@@ -38,7 +39,11 @@ python3 -m venv .venv
 
 Open <http://127.0.0.1:8000>. `set-password` sets the password for `owner`, which keeps all existing personal tasks; sign in with `owner` and your previous password. `set-invite-code` sets a registration code of 3–8 characters. New users need this code to register. Neither secret is stored in source code; registration is disabled until a code is set.
 
-Run `set-password --username NAME` to reset an account password (`owner` by default). Its existing sessions are invalidated while task data remains intact. Run `set-invite-code` again to rotate the code; if an earlier code exceeded 8 characters, set a new code after upgrading. Run `disable-registration` to pause new registrations. Run `.venv/bin/flask --app day_enough count-users` to see the registered-user count and the account total including `owner`.
+Run `set-password --username NAME` to reset an account password (`owner` by default). Its existing sessions are invalidated while task data remains intact. Run `set-invite-code` again to rotate the code; if an earlier code exceeded 8 characters, set a new code after upgrading. Run `disable-registration` to pause new registrations.
+
+Run `.venv/bin/flask --app day_enough count-users` to see the registered-user count, the total including `owner`, and the database path it read. The command must use the website's database: set the same `DAY_ENOUGH_DATA` as the web service, or use `count-users --database /actual/path/day-enough.sqlite`. If the count is unexpectedly one, check the printed path first.
+
+Publish a notice with `.venv/bin/flask --app day_enough post-announcement 'Notice text'`. The command prints its ID; use `delete-announcement ID` to remove a mistaken notice. Signed-in users see the newest notice at the top of every page and can expand four older ones. Open pages check for updates every minute, or users can click **Refresh**. Use the same `DAY_ENOUGH_DATA` as the website when running these commands on a server.
 
 The Flask development server is intended only for local use.
 

@@ -36,6 +36,7 @@ def test_invite_rotation_registration_and_username_uniqueness(app):
     assert anonymous.post('/api/register', json={}).status_code == 403
     count = app.test_cli_runner().invoke(args=['count-users'])
     assert count.exit_code == 0 and '已注册用户：0；账号总数（含 owner）：1' in count.output
+    assert f'读取数据库：{app.config["DATABASE"]}' in count.output
     for invalid in ('ab', 'abcdefghi'):
         result = app.test_cli_runner().invoke(args=['set-invite-code'],
                                               input=invalid + '\n' + invalid + '\n')
@@ -63,6 +64,40 @@ def test_invite_rotation_registration_and_username_uniqueness(app):
     _, response = register(app, username='charlie', code='12345678')
     assert response.status_code == 503
     assert client.get('/api/state').status_code == 200
+
+
+def test_count_users_can_target_the_website_database(app, tmp_path):
+    site_path = tmp_path / 'website.sqlite'
+    website = create_app({'TESTING': True, 'DATABASE': str(site_path), 'SECRET_KEY': 'site-test'})
+    set_invite(website)
+    assert register(website, 'alice')[1].status_code == 200
+    assert register(website, 'bob')[1].status_code == 200
+    local = app.test_cli_runner().invoke(args=['count-users'])
+    assert '已注册用户：0；账号总数（含 owner）：1' in local.output
+    actual = app.test_cli_runner().invoke(args=['count-users', '--database', str(site_path)])
+    assert actual.exit_code == 0
+    assert '已注册用户：2；账号总数（含 owner）：3' in actual.output
+    assert f'读取数据库：{site_path}' in actual.output
+
+
+def test_announcements_are_shared_and_can_be_removed(app, browser):
+    assert app.test_client().get('/api/announcements').status_code == 401
+    set_invite(app)
+    alice, response = register(app)
+    assert response.status_code == 200
+    runner = app.test_cli_runner()
+    assert runner.invoke(args=['post-announcement', ' ']).exit_code != 0
+    assert runner.invoke(args=['post-announcement', 'x' * 1001]).exit_code != 0
+    for number in range(1, 7):
+        result = runner.invoke(args=['post-announcement', f'公告 {number}'])
+        assert result.exit_code == 0, result.output
+    owner_feed = browser.client.get('/api/announcements').json['announcements']
+    alice_feed = alice.get('/api/announcements').json['announcements']
+    assert owner_feed == alice_feed
+    assert [entry['body'] for entry in owner_feed] == [f'公告 {n}' for n in (6, 5, 4, 3, 2)]
+    assert runner.invoke(args=['delete-announcement', '6']).exit_code == 0
+    assert [entry['body'] for entry in alice.get('/api/announcements').json['announcements']] == [
+        f'公告 {n}' for n in (5, 4, 3, 2, 1)]
 
 
 def test_bad_invites_are_rate_limited(app):
